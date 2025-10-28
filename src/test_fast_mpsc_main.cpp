@@ -107,7 +107,7 @@ void queue_test(
         << "\n   Actual queue capacity: " << queue.capacity() << " slot (min: "
         << decltype(queue)::c_block_size << ", max: "
         << decltype(queue)::c_max_capacity << ")\n"
-           "   Queue grow policy: allow at each " << gp_labels.at(G) << "\n"
+           "   Queue growth policy: allow at each " << gp_labels.at(G) << "\n"
            "   Producer slot acquire attempts: " << attempts << '\n'
         << std::fixed << std::setprecision(2)
         << "  -----------+------+--------------+-------------+-------------\n"
