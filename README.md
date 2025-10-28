@@ -31,7 +31,7 @@ xtxn::fast_mpmc_queue<payload_type> queue {};
 
 ### Constructor
 ```c++
-fast_mpmc_queue(int16_t producer_slot_acquire_attempts = 5);
+fast_mpmc_queue(int32_t producer_slot_acquire_attempts = 5);
 ```
 
 ### Retrieving the queue state
