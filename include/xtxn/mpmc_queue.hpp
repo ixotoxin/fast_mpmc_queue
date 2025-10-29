@@ -10,9 +10,10 @@ namespace xtxn {
     template<typename T>
     class alignas(std::hardware_constructive_interference_size) mpmc_queue final {
         struct node;
+        using node_ptr = std::shared_ptr<node>;
 
-        std::atomic<std::shared_ptr<node>> m_head;
-        std::atomic<std::shared_ptr<node>> m_tail;
+        std::atomic<node_ptr> m_head;
+        std::atomic<node_ptr> m_tail;
         bool m_producing { true };
         bool m_consuming { true };
 
@@ -56,11 +57,11 @@ namespace xtxn {
     template<typename T>
     template<typename U>
     void mpmc_queue<T>::enqueue(U && value) {
-        auto new_node = std::make_shared<node>(std::forward<U>(value));
+        node_ptr new_node { std::make_shared<node>(std::forward<U>(value)) };
 
         while (true) {
-            auto current_tail = m_tail.load(std::memory_order_acquire);
-            auto next = current_tail->m_next.load(std::memory_order_acquire);
+            node_ptr current_tail { m_tail.load(std::memory_order_acquire) };
+            node_ptr next { current_tail->m_next.load(std::memory_order_acquire) };
 
             if (current_tail == m_tail.load(std::memory_order_acquire)) {
                 if (next == nullptr) {
@@ -89,9 +90,9 @@ namespace xtxn {
     template<typename T>
     std::unique_ptr<T> mpmc_queue<T>::dequeue() {
         while (true) {
-            auto current_head = m_head.load(std::memory_order_acquire);
-            auto current_tail = m_tail.load(std::memory_order_acquire);
-            auto next = current_head->m_next.load(std::memory_order_acquire);
+            node_ptr current_head { m_head.load(std::memory_order_acquire) };
+            node_ptr current_tail { m_tail.load(std::memory_order_acquire) };
+            node_ptr next { current_head->m_next.load(std::memory_order_acquire) };
 
             if (current_head == m_head.load(std::memory_order_acquire)) {
                 if (current_head == current_tail) {
@@ -109,7 +110,7 @@ namespace xtxn {
                             std::memory_order_release, std::memory_order_relaxed
                         )
                     ) {
-                        std::unique_ptr<T> result = std::move(next->m_data);
+                        std::unique_ptr<T> result { std::move(next->m_data) };
                         return result;
                     }
                 }

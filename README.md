@@ -18,10 +18,10 @@ Include the header file containing the template class declaration:
 template<
     std::default_initializable T,
     bool C = true,
-    int32_t S = queue::default_block_size,
-    int32_t L = queue::default_capacity_limit,
-    int32_t A = queue::default_attempts,
-    queue::growth_policy G = queue::growth_policy::round
+    int32_t S = queue_default_block_size,
+    int32_t L = queue_default_capacity_limit,
+    int32_t A = queue_default_attempts,
+    queue_growth_policy G = queue_growth_policy::round
 >
 class fast_mpmc_queue;
 ```
@@ -150,6 +150,13 @@ std::jthread consumer1 {
         while (queue.consuming()) {
             auto slot = queue.consumer_slot();
             if (slot) {
+                // Get data from slot
+                // data = *slot;
+                // data = std::move(*slot);
+                // data.prop1 = (*slot).prop1;
+                // (*slot).func1();
+                // data2 = slot->prop2;
+                // data3 = slot->func2();
                 // Do something
                 slot.complete();
             } else {
@@ -166,7 +173,13 @@ std::jthread producer1 {
             while (queue.producing()) {
                 auto slot = queue.producer_slot(xtxn::max_attempts);
                 if (slot) {
-                    // Enqueue data
+                    // Store data to slot
+                    // *slot = data;
+                    // *slot = std::move(data);
+                    // (*slot).prop1 = data.prop1;
+                    // (*slot).func1();
+                    // slot->prop2 = data2;
+                    // slot->func2(data3);
                     slot.complete();
                     break;
                 } else {
