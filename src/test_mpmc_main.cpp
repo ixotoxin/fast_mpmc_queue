@@ -1,7 +1,6 @@
 // Copyright (c) 2025 Vitaly Anasenko
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
-#include <cassert>
 #include <cstdlib>
 #include <iostream>
 #include <iomanip>
@@ -24,7 +23,6 @@ void queue_test(
     const unsigned producers = 5,
     const unsigned consumers = 3
 ) {
-    assert((items & 1) == 0);
     xtxn::mpmc_queue<int_fast64_t> queue {};
     std::vector<std::jthread> pool {};
     std::latch exit_latch { producers + consumers + 1 };
@@ -76,7 +74,7 @@ void queue_test(
         );
     }
 
-    while (counter.load() > 0 /*|| !queue.empty()*/ || con_successes < items) {
+    while (counter.load() > 0 /*|| !queue.empty()*/ || con_successes.load() < items) {
         std::this_thread::yield();
     }
     queue.stop();
@@ -85,7 +83,7 @@ void queue_test(
     auto t2 = std::chrono::steady_clock::now();
     auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
 
-    ok = result.load() == (items >> 1) * (items + 1);
+    ok = result.load() == ((items * (items + 1)) >> 1);
 
     stream
         << std::fixed << std::setprecision(2)
@@ -118,13 +116,13 @@ int main(int, char **) {
 #ifdef _DEBUG
 #   if defined(_WIN32) && (defined(_MSC_VER) || defined(__clang__))
     {
-        constexpr auto _report_mode_ = /*_CRTDBG_MODE_DEBUG |*/ _CRTDBG_MODE_FILE /*| _CRTDBG_MODE_WNDW*/;
+        constexpr auto report_mode = /*_CRTDBG_MODE_DEBUG |*/ _CRTDBG_MODE_FILE /*| _CRTDBG_MODE_WNDW*/;
         ::_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_CHECK_ALWAYS_DF | _CRTDBG_LEAK_CHECK_DF);
-        ::_CrtSetReportMode(_CRT_ASSERT, _report_mode_);
+        ::_CrtSetReportMode(_CRT_ASSERT, report_mode);
         ::_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
-        ::_CrtSetReportMode(_CRT_WARN, _report_mode_);
+        ::_CrtSetReportMode(_CRT_WARN, report_mode);
         ::_CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
-        ::_CrtSetReportMode(_CRT_ERROR, _report_mode_);
+        ::_CrtSetReportMode(_CRT_ERROR, report_mode);
         ::_CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
     }
 #   endif
@@ -141,7 +139,7 @@ int main(int, char **) {
     for (int i = pre_test_iters; i; --i) {
         std::stringstream str {};
         bool ok {};
-        queue_test(str, ok, 100);
+        queue_test(str, ok, 100ll);
         if (!ok) {
             std::cout << str.str();
             break;
@@ -152,17 +150,17 @@ int main(int, char **) {
         << "   The preliminary test is completed  \n"
            "=================================================================\n";
 
-    queue_test(100);
-    queue_test(1'000);
-    queue_test(10'000);
+    queue_test(100ll);
+    queue_test(1'000ll);
+    queue_test(10'000ll);
 
 #ifndef _DEBUG
 
-    queue_test(100'000);
-    queue_test(1'000'000);
+    queue_test(100'000ll);
+    queue_test(1'000'000ll);
 
     unsigned workers = std::thread::hardware_concurrency() >> 1;
-    queue_test(1'000'000, workers, workers);
+    queue_test(1'000'000ll, workers, workers);
 
 #endif
 

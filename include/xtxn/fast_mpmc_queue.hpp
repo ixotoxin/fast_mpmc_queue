@@ -55,7 +55,7 @@ namespace xtxn {
         static constexpr int32_t c_max_capacity [[maybe_unused]] { L };
         static constexpr int32_t c_default_attempts [[maybe_unused]] { A };
 
-        explicit fast_mpmc_queue();
+        fast_mpmc_queue();
         fast_mpmc_queue(const fast_mpmc_queue &) = delete;
         fast_mpmc_queue(fast_mpmc_queue &&) = delete;
         ~fast_mpmc_queue() { delete m_first_block; }
@@ -160,9 +160,9 @@ namespace xtxn {
             auto current = it++;
             current->m_next = &(*it);
         }
-        auto last_slot = last_block->last_slot();
-        last->m_next = last_slot->m_next;
-        last_slot->m_next = &m_slots[0];
+        auto tail = last_block->last_slot();
+        last->m_next = tail->m_next;
+        tail->m_next = &m_slots[0];
         last_block->m_next = this;
     }
 
@@ -313,7 +313,7 @@ namespace xtxn {
                 std::memory_order_acq_rel
             );
             if (current == sentinel) {
-                if (attempts == 0) {
+                if (attempts < 1) {
                     break;
                 }
                 --attempts;

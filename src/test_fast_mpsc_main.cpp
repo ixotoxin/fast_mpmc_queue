@@ -1,7 +1,6 @@
 // Copyright (c) 2025 Vitaly Anasenko
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
-#include <cassert>
 #include <cstdlib>
 #include <iostream>
 #include <iomanip>
@@ -28,7 +27,6 @@ const std::unordered_map<gp, std::string_view> gp_labels {
 
 template<int32_t S, int32_t L, int32_t A = 10, gp G = gp::round>
 void queue_test(std::stringstream & stream, bool & ok, const int64_t items, const unsigned producers = 5) {
-    assert((items & 1) == 0);
     xtxn::fast_mpmc_queue<int_fast64_t, true, S, L, A, G> queue {};
     std::vector<std::jthread> pool {};
     std::latch exit_latch { producers + 2 };
@@ -85,7 +83,7 @@ void queue_test(std::stringstream & stream, bool & ok, const int64_t items, cons
         );
     }
 
-    while (counter.load() > 0 /*|| !queue.empty()*/ || con_successes < items) {
+    while (counter.load() > 0 /*|| !queue.empty()*/ || con_successes.load() < items) {
         std::this_thread::yield();
     }
     queue.stop();
@@ -94,7 +92,7 @@ void queue_test(std::stringstream & stream, bool & ok, const int64_t items, cons
     auto t2 = std::chrono::steady_clock::now();
     auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
 
-    ok = result.load() == (items >> 1) * (items + 1);
+    ok = result.load() == ((items * (items + 1)) >> 1);
 
     stream
         << "\n   Actual queue capacity: " << queue.capacity() << " slot (min: "
@@ -116,7 +114,6 @@ void queue_test(std::stringstream & stream, bool & ok, const int64_t items, cons
         << std::setw(11) << con_successes  << " | "
         << std::setw(11) << con_fails  << "\n"
            "  -----------+------+--------------+-------------+-------------\n"
-        //    "   Empty queue: " << (queue.capacity() == queue.free_slots() ? "Yes" : "No") << "\n"
            "   Control sum: " << (ok ? "OK" : "Invalid") << "\n"
            "   Real total time: " << (static_cast<double>(t3) / 1'000) << " ms\n\n"
            "=================================================================\n";
@@ -134,13 +131,13 @@ int main(int, char **) {
 #ifdef _DEBUG
 #   if defined(_WIN32) && (defined(_MSC_VER) || defined(__clang__))
     {
-        constexpr auto _report_mode_ = /*_CRTDBG_MODE_DEBUG |*/ _CRTDBG_MODE_FILE /*| _CRTDBG_MODE_WNDW*/;
+        constexpr auto report_mode = /*_CRTDBG_MODE_DEBUG |*/ _CRTDBG_MODE_FILE /*| _CRTDBG_MODE_WNDW*/;
         ::_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_CHECK_ALWAYS_DF | _CRTDBG_LEAK_CHECK_DF);
-        ::_CrtSetReportMode(_CRT_ASSERT, _report_mode_);
+        ::_CrtSetReportMode(_CRT_ASSERT, report_mode);
         ::_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
-        ::_CrtSetReportMode(_CRT_WARN, _report_mode_);
+        ::_CrtSetReportMode(_CRT_WARN, report_mode);
         ::_CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
-        ::_CrtSetReportMode(_CRT_ERROR, _report_mode_);
+        ::_CrtSetReportMode(_CRT_ERROR, report_mode);
         ::_CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
     }
 #   endif
@@ -151,13 +148,13 @@ int main(int, char **) {
 
     std::cout
         << "=================================================================\n"
-           "   FAST UNSTABLE MPSC QUEUE TEST  \n"
+           "   FAST MPSC QUEUE TEST  \n"
            "=================================================================\n";
 
     for (int i = pre_test_iters; i; --i) {
         std::stringstream str {};
         bool ok {};
-        queue_test<50, 5'000>(str, ok, 100);
+        queue_test<50, 5'000>(str, ok, 100ll);
         if (!ok) {
             std::cout << str.str();
             break;
@@ -168,29 +165,29 @@ int main(int, char **) {
         << "   The preliminary test is completed  \n"
            "=================================================================\n";
 
-    queue_test<1'000, 10'000>(100);
-    queue_test<1'000, 10'000>(1'000);
-    queue_test<1'000, 10'000>(10'000);
+    queue_test<1'000, 10'000>(100ll);
+    queue_test<1'000, 10'000>(1'000ll);
+    queue_test<1'000, 10'000>(10'000ll);
 
 #ifndef _DEBUG
 
-    queue_test<10, 10'000, 1>(1'000'000);
-    queue_test<100, 10'000, 1>(1'000'000);
-    queue_test<1'000, 10'000, 1>(1'000'000);
+    queue_test<10, 10'000, 1>(1'000'000ll);
+    queue_test<100, 10'000, 1>(1'000'000ll);
+    queue_test<1'000, 10'000, 1>(1'000'000ll);
 
-    queue_test<10, 10'000>(1'000'000);
-    queue_test<100, 10'000>(1'000'000);
-    queue_test<1'000, 10'000>(1'000'000);
+    queue_test<10, 10'000>(1'000'000ll);
+    queue_test<100, 10'000>(1'000'000ll);
+    queue_test<1'000, 10'000>(1'000'000ll);
 
     unsigned producers = std::thread::hardware_concurrency() - 1;
 
-    queue_test<10, 10'000, 10, gp::call>(1'000'000, producers);
-    queue_test<10, 10'000, 10, gp::round>(1'000'000, producers);
-    queue_test<10, 10'000, 10, gp::step>(1'000'000, producers);
+    queue_test<10, 10'000, 10, gp::call>(1'000'000ll, producers);
+    queue_test<10, 10'000, 10, gp::round>(1'000'000ll, producers);
+    queue_test<10, 10'000, 10, gp::step>(1'000'000ll, producers);
 
-    queue_test<1'000, 10'000, 10, gp::call>(1'000'000, producers);
-    queue_test<1'000, 10'000, 10, gp::round>(1'000'000, producers);
-    queue_test<1'000, 10'000, 10, gp::step>(1'000'000, producers);
+    queue_test<1'000, 10'000, 10, gp::call>(1'000'000ll, producers);
+    queue_test<1'000, 10'000, 10, gp::round>(1'000'000ll, producers);
+    queue_test<1'000, 10'000, 10, gp::step>(1'000'000ll, producers);
 
 #endif
 
