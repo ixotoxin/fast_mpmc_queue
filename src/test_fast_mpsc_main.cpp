@@ -18,7 +18,7 @@
 #   include <crtdbg.h>
 #endif
 
-using gp = xtxn::growth_policy;
+using gp = xtxn::queue_growth_policy;
 
 const std::unordered_map<gp, std::string_view> gp_labels {
     { gp::call, "call" },
@@ -26,17 +26,10 @@ const std::unordered_map<gp, std::string_view> gp_labels {
     { gp::step, "step" },
 };
 
-template<int32_t S, int32_t L, gp G = gp::call>
-requires (S >= 4) && (L <= std::numeric_limits<int32_t>::max() / 2) && (L >= S)
-void queue_test(
-    std::stringstream & stream,
-    bool & ok,
-    const int64_t items,
-    const int32_t attempts = 3,
-    const unsigned producers = 5
-) {
+template<int32_t S, int32_t L, int32_t A = 10, gp G = gp::round>
+void queue_test(std::stringstream & stream, bool & ok, const int64_t items, const unsigned producers = 5) {
     assert((items & 1) == 0);
-    xtxn::fast_mpmc_queue<int_fast64_t, S, L, G> queue { /*true,*/ attempts };
+    xtxn::fast_mpmc_queue<int_fast64_t, true, S, L, A, G> queue {};
     std::vector<std::jthread> pool {};
     std::latch exit_latch { producers + 2 };
     std::atomic_int_fast64_t pro_time { 0 };
@@ -108,7 +101,7 @@ void queue_test(
         << decltype(queue)::c_block_size << ", max: "
         << decltype(queue)::c_max_capacity << ")\n"
            "   Queue growth policy: allow at each " << gp_labels.at(G) << "\n"
-           "   Producer slot acquire attempts: " << attempts << '\n'
+           "   Producer slot acquire attempts: " << decltype(queue)::c_default_attempts << '\n'
         << std::fixed << std::setprecision(2)
         << "  -----------+------+--------------+-------------+-------------\n"
            "   WRK. TYPE | NUM. |  ACQU. TIME  | ACQU. SUCC. | ACQU. FAILS\n"
@@ -129,12 +122,11 @@ void queue_test(
            "=================================================================\n";
 }
 
-template<int32_t S, int32_t L, gp G = gp::call>
-requires (S >= 4) && (L <= std::numeric_limits<int32_t>::max() / 2) && (L >= S)
-void queue_test(const int64_t items, const int32_t attempts = 3, const unsigned producers = 5) {
+template<int32_t S, int32_t L, int32_t A = 10, gp G = gp::call>
+void queue_test(const int64_t items, const unsigned producers = 5) {
     std::stringstream str {};
     bool ok {};
-    queue_test<S, L, G>(str, ok, items, attempts, producers);
+    queue_test<S, L, A, G>(str, ok, items, producers);
     std::cout << str.str();
 }
 
@@ -157,8 +149,6 @@ int main(int, char **) {
     constexpr int pre_test_iters { 2'000 };
 #endif
 
-    constexpr int32_t acquire_attempts { 10 };
-
     std::cout
         << "=================================================================\n"
            "   FAST UNSTABLE MPSC QUEUE TEST  \n"
@@ -167,7 +157,7 @@ int main(int, char **) {
     for (int i = pre_test_iters; i; --i) {
         std::stringstream str {};
         bool ok {};
-        queue_test<50, 5'000>(str, ok, 100, acquire_attempts);
+        queue_test<50, 5'000>(str, ok, 100);
         if (!ok) {
             std::cout << str.str();
             break;
@@ -178,29 +168,29 @@ int main(int, char **) {
         << "   The preliminary test is completed  \n"
            "=================================================================\n";
 
-    queue_test<1'000, 10'000>(100, acquire_attempts);
-    queue_test<1'000, 10'000>(1'000, acquire_attempts);
-    queue_test<1'000, 10'000>(10'000, acquire_attempts);
+    queue_test<1'000, 10'000>(100);
+    queue_test<1'000, 10'000>(1'000);
+    queue_test<1'000, 10'000>(10'000);
 
 #ifndef _DEBUG
 
-    queue_test<10, 10'000>(1'000'000, 1);
-    queue_test<100, 10'000>(1'000'000, 1);
-    queue_test<1'000, 10'000>(1'000'000, 1);
+    queue_test<10, 10'000, 1>(1'000'000);
+    queue_test<100, 10'000, 1>(1'000'000);
+    queue_test<1'000, 10'000, 1>(1'000'000);
 
-    queue_test<10, 10'000>(1'000'000, acquire_attempts);
-    queue_test<100, 10'000>(1'000'000, acquire_attempts);
-    queue_test<1'000, 10'000>(1'000'000, acquire_attempts);
+    queue_test<10, 10'000>(1'000'000);
+    queue_test<100, 10'000>(1'000'000);
+    queue_test<1'000, 10'000>(1'000'000);
 
     unsigned producers = std::thread::hardware_concurrency() - 1;
 
-    queue_test<10, 10'000, gp::call>(1'000'000, acquire_attempts, producers);
-    queue_test<10, 10'000, gp::round>(1'000'000, acquire_attempts, producers);
-    queue_test<10, 10'000, gp::step>(1'000'000, acquire_attempts, producers);
+    queue_test<10, 10'000, 10, gp::call>(1'000'000, producers);
+    queue_test<10, 10'000, 10, gp::round>(1'000'000, producers);
+    queue_test<10, 10'000, 10, gp::step>(1'000'000, producers);
 
-    queue_test<1'000, 10'000, gp::call>(1'000'000, acquire_attempts, producers);
-    queue_test<1'000, 10'000, gp::round>(1'000'000, acquire_attempts, producers);
-    queue_test<1'000, 10'000, gp::step>(1'000'000, acquire_attempts, producers);
+    queue_test<1'000, 10'000, 10, gp::call>(1'000'000, producers);
+    queue_test<1'000, 10'000, 10, gp::round>(1'000'000, producers);
+    queue_test<1'000, 10'000, 10, gp::step>(1'000'000, producers);
 
 #endif
 

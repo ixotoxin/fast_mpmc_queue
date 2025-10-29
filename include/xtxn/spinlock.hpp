@@ -7,9 +7,9 @@
 #include <thread>
 
 namespace xtxn {
-    enum class spin { wait_flag, yield_thread };
+    enum class spin { active, yield_thread, wait_flag };
 
-    template<spin P = spin::wait_flag>
+    template<spin P = spin::active>
     class spinlock {
         std::atomic_flag m_flag {};
 
@@ -26,7 +26,7 @@ namespace xtxn {
             while (m_flag.test_and_set(std::memory_order_acquire)) {
                 if constexpr (P == spin::yield_thread) {
                     std::this_thread::yield();
-                } else {
+                } else if constexpr (P == spin::wait_flag) {
                     m_flag.wait(true, std::memory_order_relaxed);
                 }
             }
@@ -40,7 +40,7 @@ namespace xtxn {
         }
     };
 
-    template<spin P = spin::wait_flag>
+    template<spin P>
     class scoped_lock {
         spinlock<P> & m_spinlock {};
 

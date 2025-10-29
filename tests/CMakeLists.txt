@@ -4,7 +4,7 @@ include(FetchContent)
 
 option(INSTALL_GTEST "Enable installation of GoogleTest" OFF)
 
-message(STATUS "Fetch GoogleTest")
+message(STATUS "Fetching GoogleTest")
 
 FetchContent_Declare(
     googletest
