@@ -4,6 +4,7 @@ add_executable(test_mpsc test_mpsc_main.cpp)
 add_executable(test_mpmc test_mpmc_main.cpp)
 add_executable(test_fast_mpsc test_fast_mpsc_main.cpp)
 add_executable(test_fast_mpmc test_fast_mpmc_main.cpp)
+add_executable(mpmc_stress_test mpmc_stress_test.cpp)
 
 if (WIN32)
     if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -13,7 +14,7 @@ if (WIN32)
         endif()
     endif ()
     install(
-        TARGETS test_mpsc test_mpmc test_fast_mpsc test_fast_mpmc
+        TARGETS test_mpsc test_mpmc test_fast_mpsc test_fast_mpmc mpmc_stress_test
         RUNTIME_DEPENDENCIES
         PRE_EXCLUDE_REGEXES "api-ms-" "ext-ms-"
         POST_EXCLUDE_REGEXES ".*system32/.*\\.dll"
@@ -22,7 +23,7 @@ if (WIN32)
     )
 else ()
     install(
-        TARGETS test_mpsc test_mpmc test_fast_mpsc test_fast_mpmc
+        TARGETS test_mpsc test_mpmc test_fast_mpsc test_fast_mpmc mpmc_stress_test
         DESTINATION bin
     )
 endif ()

@@ -9,7 +9,7 @@ using namespace std;
 using namespace xtxn;
 
 TEST(lib_fast_mpmc_queue, seq_test) {
-    xtxn::fast_mpmc_queue<int, true, 10, 20> queue {};
+    xtxn::fast_mpmc_queue<int, 10, 20> queue {};
 
     for (int i = 30; i; --i) {
         auto slot = queue.producer_slot();
@@ -70,7 +70,7 @@ TEST(lib_fast_mpmc_queue, seq_test) {
 }
 
 TEST(lib_fast_mpmc_queue, queue_of_primitive) {
-    xtxn::fast_mpmc_queue<int, true, 10, 40> queue {};
+    xtxn::fast_mpmc_queue<int, 10, 40> queue {};
 
     for (int i = 50; i; --i) {
         auto slot = queue.producer_slot();
@@ -103,7 +103,7 @@ TEST(lib_fast_mpmc_queue, queue_of_struct) {
         int m_int { 0 };
     };
 
-    xtxn::fast_mpmc_queue<payload, true, 10, 40> queue {};
+    xtxn::fast_mpmc_queue<payload, 10, 40> queue {};
 
     for (int i = 50; i; --i) {
         auto slot = queue.producer_slot();

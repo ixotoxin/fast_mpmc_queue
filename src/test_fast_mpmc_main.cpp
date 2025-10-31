@@ -3,8 +3,6 @@
 
 #include <cstdlib>
 #include <iostream>
-#include <iomanip>
-#include <sstream>
 #include <chrono>
 #include <atomic>
 #include <vector>
@@ -12,9 +10,11 @@
 #include <thread>
 #include <latch>
 #include <xtxn/fast_mpmc_queue.hpp>
+#include "mpmc_config.hpp"
+#include "messages.hpp"
 
-#if defined(_WIN32) && defined(_DEBUG)
-#   include <crtdbg.h>
+#if defined(_DEBUG) && defined(_WIN32) && (defined(_MSC_VER) || defined(__clang__))
+#   include "memory_profile.hpp"
 #endif
 
 using gp = xtxn::queue_growth_policy;
@@ -30,10 +30,10 @@ void queue_test(
     std::stringstream & stream,
     bool & ok,
     const int64_t items,
-    const unsigned producers = 5,
-    const unsigned consumers = 3
+    const unsigned producers,
+    const unsigned consumers
 ) {
-    xtxn::fast_mpmc_queue<int_fast64_t, true, S, L, A, G> queue {};
+    xtxn::fast_mpmc_queue<int_fast64_t, S, L, true, A, G> queue {};
     std::vector<std::jthread> pool {};
     std::latch exit_latch { producers + consumers + 1 };
     std::atomic_int_fast64_t pro_time { 0 };
@@ -54,7 +54,8 @@ void queue_test(
                     auto t1 = std::chrono::steady_clock::now();
                     auto slot = queue.consumer_slot();
                     auto t2 = std::chrono::steady_clock::now();
-                    con_time.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count());
+                    auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+                    con_time.fetch_add(t3, std::memory_order_acq_rel);
                     if (slot) {
                         result.fetch_add(*slot, std::memory_order_acq_rel);
                         con_successes.fetch_add(1, std::memory_order_acq_rel);
@@ -76,7 +77,8 @@ void queue_test(
                     auto t1 = std::chrono::steady_clock::now();
                     auto slot = queue.producer_slot();
                     auto t2 = std::chrono::steady_clock::now();
-                    pro_time.fetch_add(std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count());
+                    auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+                    pro_time.fetch_add(t3, std::memory_order_acq_rel);
                     if (slot) {
                         *slot = value;
                         value = counter.fetch_sub(1, std::memory_order_acq_rel);
@@ -102,107 +104,72 @@ void queue_test(
 
     ok = result.load() == ((items * (items + 1)) >> 1);
 
-    stream
-        << "\n   Actual queue capacity: " << queue.capacity() << " slot (min: "
-        << decltype(queue)::c_block_size << ", max: "
-        << decltype(queue)::c_max_capacity << ")\n"
-           "   Queue growth policy: allow at each " << gp_labels.at(G) << "\n"
-           "   Producer slot acquire attempts: " << decltype(queue)::c_default_attempts << '\n'
-        << std::fixed << std::setprecision(2)
-        << "  -----------+------+--------------+-------------+-------------\n"
-           "   WRK. TYPE | NUM. |  ACQU. TIME  | ACQU. SUCC. | ACQU. FAILS\n"
-           "  -----------+------+--------------+-------------+-------------\n"
-           "   Producers | "
-        << std::setw(4) << producers << " | "
-        << std::setw(9) << (static_cast<double>(pro_time) / 1'000) << " ms | "
-        << std::setw(11) << pro_successes << " | "
-        << std::setw(11) << pro_fails << "\n"
-           "   Consumers | "
-        << std::setw(4) << consumers  << " | "
-        << std::setw(9) << (static_cast<double>(con_time) / 1'000)  << " ms | "
-        << std::setw(11) << con_successes  << " | "
-        << std::setw(11) << con_fails  << "\n"
-           "  -----------+------+--------------+-------------+-------------\n"
-           "   Control sum: " << (ok ? "OK" : "Invalid") << "\n"
-           "   Real total time: " << (static_cast<double>(t3) / 1'000) << " ms\n\n"
-           "=================================================================\n";
+    summary_a(stream, items);
+    summary_b(stream, gp_labels.at(G), decltype(queue)::c_default_attempts);
+    summary_c(stream, producers, pro_time, pro_successes, pro_fails, consumers, con_time, con_successes, con_fails);
+    summary_d(stream, queue.capacity(), decltype(queue)::c_block_size, decltype(queue)::c_max_capacity);
+    summary_e(stream, ok, t3);
 }
 
 template<int32_t S, int32_t L, int32_t A = 10, gp G = gp::call>
-void queue_test(
-    const int64_t items,
-    const unsigned producers = 5,
-    const unsigned consumers = 3
-) {
+void queue_test(const int64_t items, const unsigned producers, const unsigned consumers, std::string_view separator) {
     std::stringstream str {};
     bool ok {};
     queue_test<S, L, A, G>(str, ok, items, producers, consumers);
-    std::cout << str.str();
+    std::cout << str.str() << separator;
 }
 
 int main(int, char **) {
-#ifdef _DEBUG
-#   if defined(_WIN32) && (defined(_MSC_VER) || defined(__clang__))
-    {
-        constexpr auto report_mode = /*_CRTDBG_MODE_DEBUG |*/ _CRTDBG_MODE_FILE /*| _CRTDBG_MODE_WNDW*/;
-        ::_CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_CHECK_ALWAYS_DF | _CRTDBG_LEAK_CHECK_DF);
-        ::_CrtSetReportMode(_CRT_ASSERT, report_mode);
-        ::_CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
-        ::_CrtSetReportMode(_CRT_WARN, report_mode);
-        ::_CrtSetReportFile(_CRT_WARN, _CRTDBG_FILE_STDERR);
-        ::_CrtSetReportMode(_CRT_ERROR, report_mode);
-        ::_CrtSetReportFile(_CRT_ERROR, _CRTDBG_FILE_STDERR);
-    }
-#   endif
-    constexpr int pre_test_iters { 200 };
-#else
-    constexpr int pre_test_iters { 2'000 };
-#endif
-
-    std::cout
-        << "=================================================================\n"
-           "   FAST MPMC QUEUE TEST  \n"
-           "=================================================================\n";
+    std::cout << thick_separator << "   FAST MPMC QUEUE TEST\n" << prelim_test;
 
     for (int i = pre_test_iters; i; --i) {
         std::stringstream str {};
         bool ok {};
-        queue_test<50, 5'000>(str, ok, 100ll);
+        queue_test<50, 5'000>(str, ok, pre_test_items, producers_d, consumers_d);
         if (!ok) {
-            std::cout << str.str();
-            break;
+            std::cout << has_failed << thin_separator << str.str() << thick_separator;
+            return EXIT_SUCCESS;
         }
     }
 
-    std::cout
-        << "   The preliminary test is completed  \n"
-           "=================================================================\n";
+    std::cout << is_complete;
 
-    queue_test<1'000, 10'000>(100ll);
-    queue_test<1'000, 10'000>(1'000ll);
-    queue_test<1'000, 10'000>(10'000ll);
+    queue_test<1'000, 10'000>(100ll,    producers_a, consumers_a, thin_separator);
+    queue_test<1'000, 10'000>(1'000ll,  producers_a, consumers_a, thin_separator);
+    queue_test<1'000, 10'000>(10'000ll, producers_a, consumers_a, thick_separator);
 
 #ifndef _DEBUG
 
-    queue_test<10, 10'000, 1>(1'000'000ll);
-    queue_test<100, 10'000, 1>(1'000'000ll);
-    queue_test<1'000, 10'000, 1>(1'000'000ll);
+    std::cout << diff_size_and_attempts;
 
-    queue_test<10, 10'000>(1'000'000ll);
-    queue_test<100, 10'000>(1'000'000ll);
-    queue_test<1'000, 10'000>(1'000'000ll);
+    queue_test<10,    10'000, 1  >(1'000'000ll, producers_a, consumers_a, thin_separator);
+    queue_test<10,    10'000, 100>(1'000'000ll, producers_a, consumers_a, thin_separator);
+    queue_test<100,   10'000, 1  >(1'000'000ll, producers_a, consumers_a, thin_separator);
+    queue_test<100,   10'000, 100>(1'000'000ll, producers_a, consumers_a, thin_separator);
+    queue_test<1'000, 10'000, 1  >(1'000'000ll, producers_a, consumers_a, thin_separator);
+    queue_test<1'000, 10'000, 100>(1'000'000ll, producers_a, consumers_a, thick_separator);
 
-    unsigned workers = std::thread::hardware_concurrency() >> 1;
+    std::cout << diff_workers_and_policies;
 
-    queue_test<10, 10'000, 10, gp::call>(1'000'000ll, workers, workers);
-    queue_test<10, 10'000, 10, gp::round>(1'000'000ll, workers, workers);
-    queue_test<10, 10'000, 10, gp::step>(1'000'000ll, workers, workers);
+    queue_test<100, 10'000, 10, gp::call >(1'000'000ll, producers_a, consumers_a, thin_separator);
+    queue_test<100, 10'000, 10, gp::round>(1'000'000ll, producers_a, consumers_a, thin_separator);
+    queue_test<100, 10'000, 10, gp::step >(1'000'000ll, producers_a, consumers_a, thin_separator);
 
-    queue_test<1'000, 10'000, 10, gp::call>(1'000'000ll, workers, workers);
-    queue_test<1'000, 10'000, 10, gp::round>(1'000'000ll, workers, workers);
-    queue_test<1'000, 10'000, 10, gp::step>(1'000'000ll, workers, workers);
+    queue_test<100, 10'000, 10, gp::call >(1'000'000ll, producers_b, consumers_b, thin_separator);
+    queue_test<100, 10'000, 10, gp::round>(1'000'000ll, producers_b, consumers_b, thin_separator);
+    queue_test<100, 10'000, 10, gp::step >(1'000'000ll, producers_b, consumers_b, thin_separator);
+
+    queue_test<100, 10'000, 10, gp::call >(1'000'000ll, producers_c, consumers_c, thin_separator);
+    queue_test<100, 10'000, 10, gp::round>(1'000'000ll, producers_c, consumers_c, thin_separator);
+    queue_test<100, 10'000, 10, gp::step >(1'000'000ll, producers_c, consumers_c, thin_separator);
+
+    queue_test<100, 10'000, 10, gp::call >(1'000'000ll, producers_d, consumers_d, thin_separator);
+    queue_test<100, 10'000, 10, gp::round>(1'000'000ll, producers_d, consumers_d, thin_separator);
+    queue_test<100, 10'000, 10, gp::step >(1'000'000ll, producers_d, consumers_d, thick_separator);
 
 #endif
+
+    std::cout << all_tests_passed;
 
     return EXIT_SUCCESS;
 }

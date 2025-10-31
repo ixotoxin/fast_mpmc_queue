@@ -17,21 +17,21 @@ Include the header file containing the template class declaration:
 ```c++
 template<
     std::default_initializable T,
-    bool C = true,
     int32_t S = queue_default_block_size,
     int32_t L = queue_default_capacity_limit,
+    bool C = true,
     int32_t A = queue_default_attempts,
     queue_growth_policy G = queue_growth_policy::round
 >
 class fast_mpmc_queue;
 ```
 where
-- T - Type of queued item;
-- C - Auto complete flag;
-- S - Number of slots per block;
-- L - Maximum queue size (in slots);
-- A - Default producer slot acquire attempts;
-- G - Growth policy (per call, round, or step).
+- `T` - Type of queued item;
+- `S` - Number of slots per block;
+- `L` - Maximum queue size (in slots);
+- `C` - Auto complete flag;
+- `A` - Default producer slot acquire attempts;
+- `G` - Growth policy (per call, round, or step).
 
 ```c++
 xtxn::fast_mpmc_queue<payload_type> queue {};
@@ -83,14 +83,14 @@ Returns whether consumer activity is allowed. Recommended for organizing the con
 
 #### Producer slot
 ```c++
-producer_accessor fast_mpmc_queue::producer_slot(int32_t slot_acquire_attempts = 0);
+producer_accessor fast_mpmc_queue::producer_slot(int32_t slot_acquire_attempts = c_default_attempts);
 ```
 Function to acquire a producer slot. Before use, the slot must be checked in a boolean context to ensure it's valid.
 Any operations with an invalid slot result in undefined behavior.
 
 #### Consumer slot
 ```c++
-consumer_accessor fast_mpmc_queue::consumer_slot();
+consumer_accessor fast_mpmc_queue::consumer_slot(int32_t slot_acquire_attempts = c_default_attempts);
 ```
 Function to acquire a consumer slot. Before use, the slot must be checked in a boolean context to ensure it's valid.
 Any operations with an invalid slot result in undefined behavior.
@@ -137,8 +137,8 @@ Obtaining a reference to the payload.
 ```c++
 void accessor::complete();
 ```
-Mark the slot operations as completed. Calling this function is only required if the auto_complete parameter is
-disabled.
+Mark the slot operations as completed. Calling this function is only required if the auto complete flag
+(`C` parameter of template) is disabled.
 
 ## Examples
 
