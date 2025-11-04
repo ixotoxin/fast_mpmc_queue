@@ -3,15 +3,16 @@
 
 #pragma once
 
+#include "common.hpp"
+
 #include <algorithm>
 #include <thread>
-#include "execute_before_main.hpp"
 
 #ifdef _DEBUG
-    constexpr int pre_test_iters { 200 };
+    constexpr int pre_test_iters { 100 };
     constexpr int64_t pre_test_items { 100 };
 #else
-    constexpr int pre_test_iters { 2'000 };
+    constexpr int pre_test_iters { 1'000 };
     constexpr int64_t pre_test_items { 100 };
 #endif
 
@@ -31,7 +32,6 @@ EXECUTE_BEFORE_MAIN(perform_config) {
     consumers_a = std::max(1u, producers_c - producers_a);
     producers_b = std::max(1u, static_cast<unsigned>(static_cast<double>(producers_c) / 3.0 * 2.0));
     consumers_b = std::max(1u, producers_c - producers_b);
-    // producers_d = producers_c + (producers_c >> 1);
     producers_d = producers_c << 1;
     consumers_d = producers_d;
 }

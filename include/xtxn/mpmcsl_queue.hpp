@@ -1,29 +1,36 @@
 // Copyright (c) 2025 Vitaly Anasenko
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
+/**
+ * Implementation of an MPMC Queue as an MPSC Queue with a Spinlock.
+ */
+
 #pragma once
 
 #include <atomic>
+#include <memory>
+#include "spinlock.hpp"
 
 namespace xtxn {
     template<typename T>
-    class alignas(std::hardware_constructive_interference_size) mpsc_queue final {
+    class alignas(std::hardware_constructive_interference_size) mpmcsl_queue final {
         struct node;
         using mo = std::memory_order;
 
         std::atomic<node *> m_head;
         std::atomic<node *> m_tail;
+        spinlock<spin::active> m_spinlock {};
         std::atomic_bool m_producing { true };
         std::atomic_bool m_consuming { true };
 
     public:
-        mpsc_queue() : m_head { new node }, m_tail { m_head.load(mo::relaxed) } {}
-        mpsc_queue(const mpsc_queue &) = delete;
-        mpsc_queue(mpsc_queue && other) = delete;
-        ~mpsc_queue();
+        mpmcsl_queue() : m_head { new node }, m_tail { m_head.load(mo::relaxed) } {}
+        mpmcsl_queue(const mpmcsl_queue &) = delete;
+        mpmcsl_queue(mpmcsl_queue && other) = delete;
+        ~mpmcsl_queue();
 
-        mpsc_queue & operator=(const mpsc_queue &) = delete;
-        mpsc_queue & operator=(mpsc_queue&& other) = delete;
+        mpmcsl_queue & operator=(const mpmcsl_queue &) = delete;
+        mpmcsl_queue & operator=(mpmcsl_queue && other) = delete;
 
         [[nodiscard, maybe_unused]]
         bool empty() const noexcept {
@@ -57,34 +64,44 @@ namespace xtxn {
     };
 
     template<typename T>
-    struct mpsc_queue<T>::node {
+    struct mpmcsl_queue<T>::node final {
         std::unique_ptr<T> m_data;
-        std::atomic<node*> m_next;
+        std::atomic<node *> m_next { nullptr };
 
-        node() : m_data { nullptr }, m_next { nullptr } {}
+        node() : m_data { nullptr } {}
+        node(const node &) = delete;
+        node(node && other) = delete;
 
         template <typename U>
         explicit node(U && value) // NOLINT(*-forwarding-reference-overload)
-        : m_data { std::make_unique<T>(std::forward<U>(value)) }, m_next { nullptr } {}
+        : m_data { std::make_unique<T>(std::forward<U>(value)) } {}
+
+        ~node() = default;
+
+        node & operator=(const node &) = delete;
+        node & operator=(node && other) = delete;
     };
 
     template<typename T>
-    mpsc_queue<T>::~mpsc_queue() {
+    mpmcsl_queue<T>::~mpmcsl_queue() {
         stop();
-        node * current { m_head.load(mo::relaxed) };
-        while (current) {
-            node * next { current->m_next.load(mo::relaxed) };
-            delete current;
-            current = next;
+        scoped_lock lock { m_spinlock };
+        node * curr { m_head.load(mo::relaxed) };
+        while (curr) {
+            node * next { curr->m_next.load(mo::relaxed) };
+            delete curr;
+            curr = next;
         }
     }
 
     template<typename T>
     template<typename U>
-    bool mpsc_queue<T>::enqueue(U && value) {
+    bool mpmcsl_queue<T>::enqueue(U && value) {
         if (!m_producing.load(mo::relaxed)) {
             return false;
         }
+
+        scoped_lock lock { m_spinlock };
 
         node * new_node { new node(std::forward<U>(value)) };
         node * prev_tail { m_tail.exchange(new_node, mo::acq_rel) };
@@ -94,10 +111,12 @@ namespace xtxn {
     }
 
     template<typename T>
-    std::unique_ptr<T> mpsc_queue<T>::dequeue() {
+    std::unique_ptr<T> mpmcsl_queue<T>::dequeue() {
         if (!m_consuming.load(mo::relaxed)) {
             return { nullptr };
         }
+
+        scoped_lock lock { m_spinlock };
 
         node * next { m_head.load(mo::acquire)->m_next.load(mo::acquire) };
         if (!next) {

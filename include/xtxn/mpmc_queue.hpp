@@ -1,51 +1,49 @@
 // Copyright (c) 2025 Vitaly Anasenko
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
-// ISSUE:
-//   Under high worker load, it causes severe memory fragmentation.
-//   The code crashes when the number of workers significantly exceeds the CPU core count.
+/**
+ * Implementation of an MPMC Queue with epoch-based reclamation.
+ * LIMITATION: This implementation limits the total number of 'enqueue' and 'dequeue' calls to UINT64_MAX - 1.
+ */
 
 #pragma once
 
+#include <cassert>
 #include <atomic>
 #include <memory>
+#include <algorithm>
+#include <unordered_map>
 #include "spinlock.hpp"
 
 namespace xtxn {
-    template<typename T, int64_t PURGE_TRIGGER = 0x400, int64_t PURGE_DISTANCE = PURGE_TRIGGER << 8>
+    constexpr int64_t queue_default_purge_counter { 0x80 };
+    constexpr bool queue_default_purge_thread { true };
+
+    template<
+        typename T,
+        int64_t PURGE_COUNTER = queue_default_purge_counter,
+        bool PURGE_THREAD = queue_default_purge_thread
+    >
     class alignas(std::hardware_constructive_interference_size) mpmc_queue final {
         struct node;
         using mo = std::memory_order;
 
-        std::atomic_int_fast64_t m_epoch { 2 };
-        std::atomic_int_fast64_t m_purge_trigger { PURGE_TRIGGER };
-        std::atomic<node *> m_buffer { nullptr };
         std::atomic<node *> m_head;
         std::atomic<node *> m_tail;
-        spinlock<spin::yield_thread> m_spinlock {};
+        std::atomic<node *> m_deleted { nullptr };
+        std::unordered_map<std::thread::id, uint_fast64_t> m_thread_epoch {};
+        std::atomic_int_fast64_t m_purge_counter { PURGE_COUNTER };
+        std::atomic_uint_fast64_t m_epoch {};
+        spinlock<spin::yield_thread> m_purge_sl {};
+        spinlock<spin::active> m_epoch_sl {};
         std::atomic_bool m_producing { true };
         std::atomic_bool m_consuming { true };
 
-        void inc_epoch();
-        void purge();
-
     public:
-        mpmc_queue()
-        : m_head { new node(m_buffer) }, m_tail { m_head.load(mo::relaxed) } {}
-
+        mpmc_queue();
         mpmc_queue(const mpmc_queue &) = delete;
         mpmc_queue(mpmc_queue && other) = delete;
-
-        ~mpmc_queue() {
-            stop();
-            scoped_lock lock { m_spinlock };
-            node * curr { m_buffer.load(mo::relaxed) };
-            while (curr) {
-                node * next { curr->m_buffer_next.load(mo::relaxed) };
-                delete curr;
-                curr = next;
-            }
-        }
+        ~mpmc_queue();
 
         mpmc_queue & operator=(const mpmc_queue &) = delete;
         mpmc_queue & operator=(mpmc_queue && other) = delete;
@@ -66,8 +64,9 @@ namespace xtxn {
             return m_consuming.load(mo::relaxed);
         }
 
-        template <typename U> void enqueue(U &&);
+        template <typename U> bool enqueue(U &&);
         [[nodiscard]] std::unique_ptr<T> dequeue();
+        void purge();
 
         [[maybe_unused]]
         void shutdown() noexcept {
@@ -79,131 +78,210 @@ namespace xtxn {
             m_producing.store(false, mo::relaxed);
             m_consuming.store(false, mo::relaxed);
         }
-
     };
 
-    template<typename T, int64_t PURGE_TRIGGER, int64_t PURGE_DISTANCE>
-    struct mpmc_queue<T, PURGE_TRIGGER, PURGE_DISTANCE>::node final {
+    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD>
+    struct mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD>::node final {
+        static constexpr uint_fast64_t c_active { std::numeric_limits<uint_fast64_t>::max() };
         std::unique_ptr<T> m_data;
         std::atomic<node *> m_next { nullptr };
-        std::atomic<node *> m_buffer_next { nullptr };
-        std::atomic_int_fast64_t m_deletion_epoch { 0 };
+        std::atomic<node *> m_next_deleted { nullptr };
+        std::atomic_uint_fast64_t m_deleted_at { c_active };
 
-        node() = delete;
+        node() : m_data { nullptr } {}
         node(const node &) = delete;
         node(node && other) = delete;
-        ~node() = default;
-
-        explicit node(std::atomic<node *> & buffer)
-        : m_data { nullptr } {
-            m_buffer_next.store(buffer.exchange(this));
-        }
 
         template <typename U>
-        explicit node(U && value, std::atomic<node *> & buffer) // NOLINT(*-forwarding-reference-overload)
-        : m_data { std::make_unique<T>(std::forward<U>(value)) } {
-            m_buffer_next.store(buffer.exchange(this));
-        }
+        explicit node(U && value) // NOLINT(*-forwarding-reference-overload)
+        : m_data { std::make_unique<T>(std::forward<U>(value)) } {}
+
+        ~node() = default;
 
         node & operator=(const node &) = delete;
         node & operator=(node && other) = delete;
-
-        void mark_for_delete(int_fast64_t epoch) {
-            m_deletion_epoch = epoch;
-        }
     };
 
-    template<typename T, int64_t PURGE_TRIGGER, int64_t PURGE_DISTANCE>
-    template<typename U>
-    void mpmc_queue<T, PURGE_TRIGGER, PURGE_DISTANCE>::enqueue(U && value) {
-        if (!m_producing.load(mo::relaxed)) {
-            return;
-        }
-
-        node * new_node { new node(std::forward<U>(value), m_buffer) };
-
-        while (m_producing.load(mo::relaxed)) {
-            node * curr_tail { m_tail.load(mo::acquire) };
-            node * next { curr_tail->m_next.load(mo::acquire) };
-
-            if (next != nullptr) {
-                m_tail.compare_exchange_strong(curr_tail, next);
-                continue;
-            }
-
-            node * expected { nullptr };
-            if (curr_tail->m_next.compare_exchange_strong(expected, new_node)) {
-                m_tail.compare_exchange_strong(curr_tail, new_node);
-                return;
-            }
+    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD>
+    mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD>::mpmc_queue()
+    : m_head { new node }, m_tail { m_head.load(mo::relaxed) } {
+        if constexpr (PURGE_THREAD) {
+            std::thread(
+                [queue = this] {
+                    while (queue->m_consuming.load(mo::acquire)) {
+                        while (queue->m_purge_counter.load(mo::acquire) > 0) {
+                            std::this_thread::yield();
+                            if (!queue->m_consuming.load(mo::acquire)) {
+                                break;
+                            }
+                        }
+                        queue->purge();
+                        queue->m_purge_counter.store(PURGE_COUNTER, mo::release);
+                    }
+                }
+            ).detach();
         }
     }
 
-    template<typename T, int64_t PURGE_TRIGGER, int64_t PURGE_DISTANCE>
-    std::unique_ptr<T> mpmc_queue<T, PURGE_TRIGGER, PURGE_DISTANCE>::dequeue() {
-        if (m_purge_trigger.fetch_sub(1, mo::acq_rel) == 1) {
-            purge();
-            m_purge_trigger.store(PURGE_TRIGGER, mo::release);
+    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD>
+    mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD>::~mpmc_queue() {
+        stop();
+
+        scoped_lock lock { m_purge_sl };
+
+        node * curr { m_head.load(mo::relaxed)->m_next.load(mo::relaxed) };
+        while (curr) {
+            node * next { curr->m_next.load(mo::relaxed) };
+            if (curr->m_deleted_at.load(mo::acquire) == node::c_active) {
+                delete curr;
+            }
+            curr = next;
         }
 
-        inc_epoch();
+        delete m_head.load();
 
-        while (m_consuming.load(mo::relaxed)) {
-            node * curr_head { m_head.load(mo::acquire) };
-            node * curr_tail { m_tail.load(mo::acquire) };
-            node * first { curr_head->m_next.load(mo::acquire) };
+        curr = m_deleted.load(mo::relaxed);
+        while (curr) {
+            node * next { curr->m_next_deleted.load(mo::relaxed) };
+            delete curr;
+            curr = next;
+        }
+    }
 
-            if (first == nullptr) {
-                return { nullptr };
-            }
+    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD>
+    template<typename U>
+    bool mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD>::enqueue(U && value) {
+        if (!m_producing.load(mo::relaxed)) {
+            return false;
+        }
 
-            if (curr_head == curr_tail) {
-                m_tail.compare_exchange_strong(curr_tail, first);
+        uint_fast64_t * epoch { nullptr };
+        {
+            scoped_lock lock { m_epoch_sl };
+            epoch = &m_thread_epoch[std::this_thread::get_id()];
+        }
+        *epoch = m_epoch.fetch_add(1, mo::relaxed);
+
+        node * new_node { new node(std::forward<U>(value)) };
+
+        while (m_producing.load(mo::relaxed)) {
+            node * tail { m_tail.load(mo::acquire) };
+            node * next { tail->m_next.load(mo::acquire) };
+
+            if (next) {
+                m_tail.store(next, mo::release);
                 continue;
             }
 
-            if (m_head.compare_exchange_strong(curr_head, first)) {
+            if (tail->m_next.compare_exchange_strong(next, new_node, mo::acq_rel, mo::acquire)) {
+                m_tail.store(new_node, mo::release);
+                break;
+            }
+        }
+
+        *epoch = node::c_active;
+        return true;
+    }
+
+    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD>
+    std::unique_ptr<T> mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD>::dequeue() {
+        if constexpr (PURGE_THREAD) {
+            m_purge_counter.fetch_sub(1, mo::acq_rel);
+        } else {
+            if (m_purge_counter.fetch_sub(1, mo::acq_rel) == 1) {
+                purge();
+                m_purge_counter.store(PURGE_COUNTER, mo::release);
+            }
+        }
+
+        uint_fast64_t * epoch { nullptr };
+        {
+            scoped_lock lock { m_epoch_sl };
+            epoch = &m_thread_epoch[std::this_thread::get_id()];
+        }
+        *epoch = m_epoch.fetch_add(1, mo::relaxed);
+
+        while (m_consuming.load(mo::relaxed)) {
+            node * head { m_head.load(mo::acquire) };
+            node * first { head->m_next.load(mo::acquire) };
+
+            if (first == nullptr) {
+                *epoch = node::c_active;
+                return { nullptr };
+            }
+
+            if (m_tail.load(mo::acquire) == head) {
+                m_tail.store(first, mo::release);
+                continue;
+            }
+
+            if (first->m_deleted_at.load(mo::acquire) != node::c_active) {
+                continue;
+            }
+
+            if (m_head.compare_exchange_strong(head, first, mo::acq_rel, mo::acquire)) {
                 auto result = std::move(first->m_data);
-                curr_head->mark_for_delete(m_epoch.load(mo::acquire));
+                first->m_deleted_at.store(*epoch, mo::release);
+                head->m_next_deleted.store(m_deleted.exchange(head, mo::acq_rel), mo::release);
+                *epoch = node::c_active;
                 return result;
             }
         }
 
+        *epoch = node::c_active;
         return { nullptr };
     }
 
-    template<typename T, int64_t PURGE_TRIGGER, int64_t PURGE_DISTANCE>
-    void mpmc_queue<T, PURGE_TRIGGER, PURGE_DISTANCE>::inc_epoch() {
-        if (m_epoch.fetch_add(1, mo::acq_rel) < 0) {
-            m_epoch.store(1, mo::release);
-        }
-    }
+    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD>
+    void mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD>::purge() {
+        scoped_lock purge_lock { m_purge_sl };
 
-    template<typename T, int64_t PURGE_TRIGGER, int64_t PURGE_DISTANCE>
-    void mpmc_queue<T, PURGE_TRIGGER, PURGE_DISTANCE>::purge() {
-        scoped_lock lock { m_spinlock };
-        auto count { PURGE_DISTANCE };
-        node * prev { nullptr };
-        node * curr { m_buffer.load(mo::acquire) };
-        while (curr && count--) {
-            prev = curr;
-            curr = curr->m_buffer_next.load(mo::acquire);
+        constexpr int skip_first { 4 };
+
+        uint_fast64_t min_epoch {};
+        {
+            scoped_lock epoch_lock { m_epoch_sl };
+            auto min_it
+                = std::ranges::min_element(
+                    m_thread_epoch,
+                    {},
+                    &std::pair<const std::thread::id, uint_fast64_t>::second
+                );
+            /*auto min_it
+                = std::min_element(
+                    m_thread_epoch.begin(),
+                    m_thread_epoch.end(),
+                    [] (const auto & a, const auto & b) { return a.second < b.second; }
+                );*/
+            if (min_it == m_thread_epoch.end()) {
+                return;
+            }
+            min_epoch = min_it->second;
         }
-        if (!curr) {
+
+        int count { skip_first };
+        node * last { nullptr };
+        node * curr { m_deleted.load(mo::acquire) };
+        while (curr && count--) {
+            node * next { curr->m_next_deleted.load(mo::acquire) };
+            last = curr;
+            curr = next;
+        }
+        if (!last) {
             return;
         }
-        auto epoch0 { m_epoch.load(mo::acquire) };
+
         while (curr) {
-            node * next { curr->m_buffer_next.load(mo::acquire) };
-            auto epoch { curr->m_deletion_epoch.load(mo::acquire) };
-            auto distance { epoch - epoch0/*m_epoch.load(mo::acquire)*/ };
-            if (epoch && (distance < -PURGE_DISTANCE || distance > PURGE_DISTANCE)) {
-                prev->m_buffer_next.store(next, mo::release);
-                delete curr;
+            node * next { curr->m_next_deleted.load(mo::acquire) };
+            if (auto deleted_at = curr->m_deleted_at.load(mo::acquire); deleted_at >= min_epoch) {
+                last->m_next_deleted.store(curr, mo::release);
+                last = curr;
             } else {
-                prev = curr;
+                delete curr;
             }
             curr = next;
         }
+
+        last->m_next_deleted.store(nullptr, mo::release);
     }
 }

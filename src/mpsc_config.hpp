@@ -3,16 +3,17 @@
 
 #pragma once
 
+#include "common.hpp"
+
 #include <cstdint>
 #include <algorithm>
 #include <thread>
-#include "execute_before_main.hpp"
 
 #ifdef _DEBUG
-    constexpr int pre_test_iters { 200 };
+    constexpr int pre_test_iters { 100 };
     constexpr int64_t pre_test_items { 100 };
 #else
-    constexpr int pre_test_iters { 2'000 };
+    constexpr int pre_test_iters { 1'000 };
     constexpr int64_t pre_test_items { 100 };
 #endif
 

@@ -2,9 +2,9 @@
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
 #include "common.hpp"
-#include "mpsc_config.hpp"
+#include "mpmc_config.hpp"
 #include "messages.hpp"
-#include <xtxn/mpsc_queue.hpp>
+#include <xtxn/mpmcsl_queue.hpp>
 
 #include <cstdlib>
 #include <iostream>
@@ -14,10 +14,16 @@
 #include <thread>
 #include <latch>
 
-void queue_test(std::stringstream & stream, bool & ok, const int64_t items, const unsigned producers) {
-    xtxn::mpsc_queue<int_fast64_t> queue {};
+void queue_test(
+    std::stringstream & stream,
+    bool & ok,
+    const int64_t items,
+    const unsigned producers,
+    const unsigned consumers
+) {
+    xtxn::mpmcsl_queue<int_fast64_t> queue {};
     std::vector<std::jthread> pool {};
-    std::latch exit_latch { producers + 2 };
+    std::latch exit_latch { producers + consumers + 1 };
     std::atomic_int_fast64_t pro_time { 0 };
     std::atomic_int_fast64_t pro_successes { 0 };
     std::atomic_int_fast64_t con_time { 0 };
@@ -28,25 +34,27 @@ void queue_test(std::stringstream & stream, bool & ok, const int64_t items, cons
 
     auto t1 = std::chrono::steady_clock::now();
 
-    pool.emplace_back(
-        [& exit_latch, & queue, & result, & con_time, & con_successes, & con_fails] {
-            while (queue.consuming()) {
-                auto t1 = std::chrono::steady_clock::now();
-                auto item = queue.dequeue();
-                auto t2 = std::chrono::steady_clock::now();
-                auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
-                con_time.fetch_add(t3, std::memory_order_acq_rel);
-                if (item) {
-                    result.fetch_add(*item, std::memory_order_acq_rel);
-                    con_successes.fetch_add(1, std::memory_order_acq_rel);
-                } else {
-                    con_fails.fetch_add(1, std::memory_order_acq_rel);
-                    std::this_thread::yield();
+    for (unsigned i = consumers; i; --i) {
+        pool.emplace_back(
+            [& exit_latch, & queue, & result, & con_time, & con_successes, & con_fails] {
+                while (queue.consuming()) {
+                    auto t1 = std::chrono::steady_clock::now();
+                    auto item = queue.dequeue();
+                    auto t2 = std::chrono::steady_clock::now();
+                    auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+                    con_time.fetch_add(t3, std::memory_order_acq_rel);
+                    if (item) {
+                        result.fetch_add(*item, std::memory_order_acq_rel);
+                        con_successes.fetch_add(1, std::memory_order_acq_rel);
+                    } else {
+                        con_fails.fetch_add(1, std::memory_order_acq_rel);
+                        std::this_thread::yield();
+                    }
                 }
+                exit_latch.arrive_and_wait();
             }
-            exit_latch.arrive_and_wait();
-        }
-    );
+        );
+    }
 
     for (unsigned i = producers; i; --i) {
         pool.emplace_back(
@@ -78,24 +86,24 @@ void queue_test(std::stringstream & stream, bool & ok, const int64_t items, cons
     ok = result.load() == ((items * (items + 1)) >> 1);
 
     summary_a(stream, items);
-    summary_c(stream, producers, pro_time, pro_successes, 0, 1, con_time, con_successes, con_fails);
+    summary_c(stream, producers, pro_time, pro_successes, 0, consumers, con_time, con_successes, con_fails);
     summary_e(stream, ok, t3);
 }
 
-void queue_test(const int64_t items, const unsigned producers, std::string_view separator) {
+void queue_test(const int64_t items, const unsigned producers, const unsigned consumers, std::string_view separator) {
     std::stringstream str {};
     bool ok {};
-    queue_test(str, ok, items, producers);
+    queue_test(str, ok, items, producers, consumers);
     std::cout << str.str() << separator;
 }
 
 int main(int, char **) {
-    std::cout << thick_separator << "   CLASSIC MPSC QUEUE TEST\n" << prelim_test;
+    std::cout << thick_separator << "   CLASSIC MPMC QUEUE TEST (MPSC WITH SPINLOCK)\n" << prelim_test;
 
     for (int i = pre_test_iters; i; --i) {
         std::stringstream str {};
         bool ok {};
-        queue_test(str, ok, pre_test_items, workers_c);
+        queue_test(str, ok, pre_test_items, producers_d, consumers_d);
         if (!ok) {
             std::cout << has_failed << thin_separator << str.str() << thick_separator;
             return EXIT_SUCCESS;
@@ -104,17 +112,18 @@ int main(int, char **) {
 
     std::cout << is_complete;
 
-    queue_test(100ll,    workers_a, thin_separator);
-    queue_test(1'000ll,  workers_a, thin_separator);
-    queue_test(10'000ll, workers_a, thick_separator);
+    queue_test(100ll,    producers_d, consumers_d, thin_separator);
+    queue_test(1'000ll,  producers_d, consumers_d, thin_separator);
+    queue_test(10'000ll, producers_d, consumers_d, thick_separator);
 
 #ifndef _DEBUG
 
     std::cout << diff_workers;
 
-    queue_test(1'000'000ll, workers_a, thin_separator);
-    queue_test(1'000'000ll, workers_b, thin_separator);
-    queue_test(1'000'000ll, workers_c, thick_separator);
+    queue_test(1'000'000ll, producers_a, consumers_a, thin_separator);
+    queue_test(1'000'000ll, producers_b, consumers_b, thin_separator);
+    queue_test(1'000'000ll, producers_c, consumers_c, thin_separator);
+    queue_test(1'000'000ll, producers_d, consumers_d, thick_separator);
 
 #endif
 

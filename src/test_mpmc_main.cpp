@@ -1,6 +1,11 @@
 // Copyright (c) 2025 Vitaly Anasenko
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
+#include "common.hpp"
+#include "mpmc_config.hpp"
+#include "messages.hpp"
+#include <xtxn/mpmc_queue.hpp>
+
 #include <cstdlib>
 #include <iostream>
 #include <chrono>
@@ -8,14 +13,8 @@
 #include <vector>
 #include <thread>
 #include <latch>
-#include <xtxn/mpmc_queue.hpp>
-#include "mpmc_config.hpp"
-#include "messages.hpp"
 
-#if defined(_DEBUG) && defined(_WIN32) && (defined(_MSC_VER) || defined(__clang__))
-#   include "memory_profile.hpp"
-#endif
-
+template<int64_t PC = xtxn::queue_default_purge_counter, bool PT = xtxn::queue_default_purge_thread>
 void queue_test(
     std::stringstream & stream,
     bool & ok,
@@ -23,7 +22,7 @@ void queue_test(
     const unsigned producers,
     const unsigned consumers
 ) {
-    xtxn::mpmc_queue<int_fast64_t> queue {};
+    xtxn::mpmc_queue<int_fast64_t, PC, PT> queue {};
     std::vector<std::jthread> pool {};
     std::latch exit_latch { producers + consumers + 1 };
     std::atomic_int_fast64_t pro_time { 0 };
@@ -92,15 +91,16 @@ void queue_test(
     summary_e(stream, ok, t3);
 }
 
+template<int64_t PC = xtxn::queue_default_purge_counter, bool PT = xtxn::queue_default_purge_thread>
 void queue_test(const int64_t items, const unsigned producers, const unsigned consumers, std::string_view separator) {
     std::stringstream str {};
     bool ok {};
-    queue_test(str, ok, items, producers, consumers);
+    queue_test<PC, PT>(str, ok, items, producers, consumers);
     std::cout << str.str() << separator;
 }
 
 int main(int, char **) {
-    std::cout << thick_separator << "   CLASSIC MPMC QUEUE TEST\n" << prelim_test;
+    std::cout << thick_separator << "   CLASSIC MPMC QUEUE TEST (EPOCH-BASED RECLAMATION)\n" << prelim_test;
 
     for (int i = pre_test_iters; i; --i) {
         std::stringstream str {};

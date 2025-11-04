@@ -1,10 +1,27 @@
 cmake_minimum_required(VERSION 3.25)
 
+option(ENABLE_MEMORY_PROFILING "Enable memory profiling" OFF)
+
 add_executable(test_mpsc test_mpsc_main.cpp)
+target_compile_definitions(test_mpsc PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
+
 add_executable(test_mpmc test_mpmc_main.cpp)
+target_compile_definitions(test_mpmc PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
+
+add_executable(test_mpmcdd test_mpmcdd_main.cpp)
+target_compile_definitions(test_mpmcdd PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
+
+add_executable(test_mpmcsl test_mpmcsl_main.cpp)
+target_compile_definitions(test_mpmcsl PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
+
 add_executable(test_fast_mpsc test_fast_mpsc_main.cpp)
+target_compile_definitions(test_fast_mpsc PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
+
 add_executable(test_fast_mpmc test_fast_mpmc_main.cpp)
-add_executable(mpmc_stress_test mpmc_stress_test.cpp)
+target_compile_definitions(test_fast_mpmc PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
+
+add_executable(stress_test_mpmc stress_test_mpmc_main.cpp)
+target_compile_definitions(stress_test_mpmc PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
 
 if (WIN32)
     if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -14,7 +31,7 @@ if (WIN32)
         endif()
     endif ()
     install(
-        TARGETS test_mpsc test_mpmc test_fast_mpsc test_fast_mpmc mpmc_stress_test
+        TARGETS test_mpsc test_mpmc test_mpmcdd test_mpmcsl test_fast_mpsc test_fast_mpmc stress_test_mpmc
         RUNTIME_DEPENDENCIES
         PRE_EXCLUDE_REGEXES "api-ms-" "ext-ms-"
         POST_EXCLUDE_REGEXES ".*system32/.*\\.dll"
@@ -23,7 +40,7 @@ if (WIN32)
     )
 else ()
     install(
-        TARGETS test_mpsc test_mpmc test_fast_mpsc test_fast_mpmc mpmc_stress_test
+        TARGETS test_mpsc test_mpmc test_mpmcdd test_mpmcsl test_fast_mpsc test_fast_mpmc stress_test_mpmc
         DESTINATION bin
     )
 endif ()
@@ -31,6 +48,8 @@ endif ()
 if (BUILD_TESTS)
     add_test(NAME test_mpsc COMMAND test_mpsc)
     add_test(NAME test_mpmc COMMAND test_mpmc)
+    add_test(NAME test_mpmcdd COMMAND test_mpmcdd)
+    add_test(NAME test_mpmcsl COMMAND test_mpmcsl)
     add_test(NAME test_fast_mpsc COMMAND test_fast_mpsc)
     add_test(NAME test_fast_mpmc COMMAND test_fast_mpmc)
 endif ()

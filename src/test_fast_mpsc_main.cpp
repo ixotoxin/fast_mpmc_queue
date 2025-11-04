@@ -1,6 +1,11 @@
 // Copyright (c) 2025 Vitaly Anasenko
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
+#include "common.hpp"
+#include "mpsc_config.hpp"
+#include "messages.hpp"
+#include <xtxn/fast_mpmc_queue.hpp>
+
 #include <cstdlib>
 #include <iostream>
 #include <chrono>
@@ -9,13 +14,6 @@
 #include <unordered_map>
 #include <thread>
 #include <latch>
-#include <xtxn/fast_mpmc_queue.hpp>
-#include "mpsc_config.hpp"
-#include "messages.hpp"
-
-#if defined(_DEBUG) && defined(_WIN32) && (defined(_MSC_VER) || defined(__clang__))
-#   include "memory_profile.hpp"
-#endif
 
 using gp = xtxn::queue_growth_policy;
 
