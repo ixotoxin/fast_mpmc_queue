@@ -5,11 +5,11 @@
 #include "messages.hpp"
 #include <xtxn/fast_mpmc_queue.hpp>
 #include <xtxn/mpmc_queue.hpp>
-
+#include <cassert>
 #include <cstdlib>
+#include <atomic>
 #include <iostream>
 #include <chrono>
-#include <atomic>
 #include <vector>
 #include <thread>
 #include <latch>
@@ -17,7 +17,11 @@
 int main(int, char **) {
     const unsigned producers { std::thread::hardware_concurrency() << 2 };
     const unsigned consumers { producers };
+#ifdef _DEBUG
+    constexpr int64_t items { 1'000'000 };
+#else
     constexpr int64_t items { 10'000'000 };
+#endif
 
     {
         std::stringstream str {};
@@ -67,11 +71,13 @@ int main(int, char **) {
             );
         }
 
-        while (counter.load() > 0 /*|| !queue.empty()*/ || consumed.load() < items) {
+        while (counter.load() > 0 || consumed.load() < items) {
             std::this_thread::yield();
         }
         queue.stop();
         exit_latch.arrive_and_wait();
+
+        assert(queue.empty());
 
         auto t2 = std::chrono::steady_clock::now();
         auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
@@ -82,7 +88,7 @@ int main(int, char **) {
 
     {
         std::stringstream str {};
-        xtxn::mpmc_queue<int_fast64_t> queue {};
+        xtxn::mpmc_queue<int_fast64_t, 500, true, 1000> queue {};
         std::vector<std::jthread> pool {};
         std::latch exit_latch { producers + consumers + 1 };
         std::atomic_int_fast64_t consumed { 0 };
@@ -105,6 +111,7 @@ int main(int, char **) {
                             std::this_thread::yield();
                         }
                     }
+                    queue.escape();
                     exit_latch.arrive_and_wait();
                 }
             );
@@ -118,16 +125,19 @@ int main(int, char **) {
                         queue.enqueue(value);
                         value = counter.fetch_sub(1, std::memory_order_acq_rel);
                     }
+                    queue.escape();
                     exit_latch.arrive_and_wait();
                 }
             );
         }
 
-        while (counter.load() > 0 /*|| !queue.empty()*/ || consumed.load() < items) {
+        while (counter.load() > 0 || consumed.load() < items) {
             std::this_thread::yield();
         }
         queue.stop();
         exit_latch.arrive_and_wait();
+
+        assert(queue.empty());
 
         auto t2 = std::chrono::steady_clock::now();
         auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();

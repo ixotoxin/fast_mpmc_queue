@@ -3,8 +3,8 @@
 
 #pragma once
 
-#include <concepts>
 #include <cstdint>
+#include <concepts>
 #include <iomanip>
 #include <sstream>
 #include <string_view>

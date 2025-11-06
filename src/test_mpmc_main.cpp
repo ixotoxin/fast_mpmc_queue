@@ -5,11 +5,11 @@
 #include "mpmc_config.hpp"
 #include "messages.hpp"
 #include <xtxn/mpmc_queue.hpp>
-
+#include <cassert>
 #include <cstdlib>
+#include <atomic>
 #include <iostream>
 #include <chrono>
-#include <atomic>
 #include <vector>
 #include <thread>
 #include <latch>
@@ -52,6 +52,7 @@ void queue_test(
                         std::this_thread::yield();
                     }
                 }
+                queue.escape();
                 exit_latch.arrive_and_wait();
             }
         );
@@ -70,16 +71,19 @@ void queue_test(
                     value = counter.fetch_sub(1, std::memory_order_acq_rel);
                     pro_successes.fetch_add(1, std::memory_order_acq_rel);
                 }
+                queue.escape();
                 exit_latch.arrive_and_wait();
             }
         );
     }
 
-    while (counter.load() > 0 /*|| !queue.empty()*/ || con_successes.load() < items) {
+    while (counter.load() > 0 || con_successes.load() < items) {
         std::this_thread::yield();
     }
     queue.stop();
     exit_latch.arrive_and_wait();
+
+    assert(queue.empty());
 
     auto t2 = std::chrono::steady_clock::now();
     auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
@@ -114,9 +118,10 @@ int main(int, char **) {
 
     std::cout << is_complete;
 
-    queue_test(100ll,    producers_d, consumers_d, thin_separator);
-    queue_test(1'000ll,  producers_d, consumers_d, thin_separator);
-    queue_test(10'000ll, producers_d, consumers_d, thick_separator);
+    queue_test(100ll,     producers_d, consumers_d, thin_separator);
+    queue_test(1'000ll,   producers_d, consumers_d, thin_separator);
+    queue_test(10'000ll,  producers_d, consumers_d, thin_separator);
+    queue_test(100'000ll, producers_d, consumers_d, thick_separator);
 
 #ifndef _DEBUG
 

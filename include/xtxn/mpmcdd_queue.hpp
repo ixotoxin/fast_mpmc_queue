@@ -92,22 +92,22 @@ namespace xtxn {
 
         red_lock lock { m_barrier };
 
-        node * curr { m_head.load(mo::relaxed) };
-        while (curr) {
-            node * next { curr->m_next.load(mo::relaxed) };
-            if (!curr->m_deleted.test()) {
-                delete curr;
+        node * current { m_head.load(mo::relaxed)->m_next.load(mo::relaxed) };
+        while (current) {
+            node * next { current->m_next.load(mo::relaxed) };
+            if (!current->m_deleted.test()) {
+                delete current;
             }
-            curr = next;
+            current = next;
         }
 
         delete m_head.load();
 
-        curr = m_deleted.load(mo::relaxed);
-        while (curr) {
-            node * next { curr->m_next_deleted.load(mo::relaxed) };
-            delete curr;
-            curr = next;
+        current = m_deleted.load(mo::relaxed);
+        while (current) {
+            node * next { current->m_next_deleted.load(mo::relaxed) };
+            delete current;
+            current = next;
         }
     }
 
@@ -175,11 +175,11 @@ namespace xtxn {
     void mpmcdd_queue<T>::purge() {
         red_lock lock { m_barrier };
 
-        node * curr { m_deleted.load(mo::relaxed) };
-        while (curr) {
-            node * next { curr->m_next_deleted.load(mo::relaxed) };
-            delete curr;
-            curr = next;
+        node * current { m_deleted.load(mo::relaxed) };
+        while (current && m_consuming.load(mo::relaxed)) {
+            node * next { current->m_next_deleted.load(mo::relaxed) };
+            delete current;
+            current = next;
         }
     }
 }

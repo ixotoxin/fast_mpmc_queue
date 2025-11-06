@@ -9,31 +9,39 @@
 #pragma once
 
 #include <cassert>
+#include <cstdint>
 #include <atomic>
 #include <memory>
-#include <algorithm>
 #include <unordered_map>
+#include <algorithm>
 #include "spinlock.hpp"
 
 namespace xtxn {
     constexpr int64_t queue_default_purge_counter { 0x80 };
     constexpr bool queue_default_purge_thread { true };
+    constexpr int queue_default_purge_skip_first { 0x80 };
 
     template<
         typename T,
         int64_t PURGE_COUNTER = queue_default_purge_counter,
-        bool PURGE_THREAD = queue_default_purge_thread
+        bool PURGE_THREAD = queue_default_purge_thread,
+        int PURGE_SKIP_FIRST = queue_default_purge_skip_first
     >
+    requires (PURGE_COUNTER >= 4) && (PURGE_SKIP_FIRST >= 4)
     class alignas(std::hardware_constructive_interference_size) mpmc_queue final {
         struct node;
         using mo = std::memory_order;
+        using epoch_type = uint_fast64_t;
 
+        static constexpr epoch_type c_before_epoch { std::numeric_limits<epoch_type>::min() };
+        static constexpr epoch_type c_beyond_epoch { std::numeric_limits<epoch_type>::max() };
+
+        std::unordered_map<std::thread::id, epoch_type> m_thread_epoch {};
         std::atomic<node *> m_head;
         std::atomic<node *> m_tail;
         std::atomic<node *> m_deleted { nullptr };
-        std::unordered_map<std::thread::id, uint_fast64_t> m_thread_epoch {};
         std::atomic_int_fast64_t m_purge_counter { PURGE_COUNTER };
-        std::atomic_uint_fast64_t m_epoch {};
+        std::atomic<epoch_type> m_epoch { c_before_epoch + 1 };
         spinlock<spin::yield_thread> m_purge_sl {};
         spinlock<spin::active> m_epoch_sl {};
         std::atomic_bool m_producing { true };
@@ -69,6 +77,18 @@ namespace xtxn {
         void purge();
 
         [[maybe_unused]]
+        void touch() {
+            scoped_lock epoch_lock { m_epoch_sl };
+            m_thread_epoch[std::this_thread::get_id()] = m_epoch.fetch_add(1, mo::relaxed);
+        }
+
+        [[maybe_unused]]
+        void escape() {
+            scoped_lock epoch_lock { m_epoch_sl };
+            m_thread_epoch.erase(std::this_thread::get_id());
+        }
+
+        [[maybe_unused]]
         void shutdown() noexcept {
             m_producing.store(false, mo::relaxed);
         }
@@ -80,13 +100,13 @@ namespace xtxn {
         }
     };
 
-    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD>
-    struct mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD>::node final {
-        static constexpr uint_fast64_t c_active { std::numeric_limits<uint_fast64_t>::max() };
+    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD, int PURGE_SKIP_FIRST>
+    requires (PURGE_COUNTER >= 4) && (PURGE_SKIP_FIRST >= 4)
+    struct mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD, PURGE_SKIP_FIRST>::node final {
         std::unique_ptr<T> m_data;
         std::atomic<node *> m_next { nullptr };
         std::atomic<node *> m_next_deleted { nullptr };
-        std::atomic_uint_fast64_t m_deleted_at { c_active };
+        std::atomic<epoch_type> m_deleted_at { c_beyond_epoch };
 
         node() : m_data { nullptr } {}
         node(const node &) = delete;
@@ -102,8 +122,9 @@ namespace xtxn {
         node & operator=(node && other) = delete;
     };
 
-    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD>
-    mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD>::mpmc_queue()
+    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD, int PURGE_SKIP_FIRST>
+    requires (PURGE_COUNTER >= 4) && (PURGE_SKIP_FIRST >= 4)
+    mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD, PURGE_SKIP_FIRST>::mpmc_queue()
     : m_head { new node }, m_tail { m_head.load(mo::relaxed) } {
         if constexpr (PURGE_THREAD) {
             std::thread(
@@ -123,44 +144,51 @@ namespace xtxn {
         }
     }
 
-    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD>
-    mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD>::~mpmc_queue() {
+    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD, int PURGE_SKIP_FIRST>
+    requires (PURGE_COUNTER >= 4) && (PURGE_SKIP_FIRST >= 4)
+    mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD, PURGE_SKIP_FIRST>::~mpmc_queue() {
         stop();
 
         scoped_lock lock { m_purge_sl };
 
-        node * curr { m_head.load(mo::relaxed)->m_next.load(mo::relaxed) };
-        while (curr) {
-            node * next { curr->m_next.load(mo::relaxed) };
-            if (curr->m_deleted_at.load(mo::acquire) == node::c_active) {
-                delete curr;
+        node * current { m_head.load(mo::relaxed)->m_next.load(mo::relaxed) };
+        while (current) {
+            node * next { current->m_next.load(mo::relaxed) };
+            if (current->m_deleted_at.load(mo::acquire) == c_beyond_epoch) {
+                delete current;
             }
-            curr = next;
+            current = next;
         }
 
         delete m_head.load();
 
-        curr = m_deleted.load(mo::relaxed);
-        while (curr) {
-            node * next { curr->m_next_deleted.load(mo::relaxed) };
-            delete curr;
-            curr = next;
+        current = m_deleted.load(mo::relaxed);
+        while (current) {
+            node * next { current->m_next_deleted.load(mo::relaxed) };
+            delete current;
+            current = next;
         }
     }
 
-    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD>
+    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD, int PURGE_SKIP_FIRST>
+    requires (PURGE_COUNTER >= 4) && (PURGE_SKIP_FIRST >= 4)
     template<typename U>
-    bool mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD>::enqueue(U && value) {
+    bool mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD, PURGE_SKIP_FIRST>::enqueue(U && value) {
         if (!m_producing.load(mo::relaxed)) {
             return false;
         }
 
-        uint_fast64_t * epoch { nullptr };
+        epoch_type epoch { m_epoch.fetch_add(1, mo::relaxed) };
+        assert(epoch != c_beyond_epoch);
+        epoch_type * thread_epoch { nullptr };
         {
             scoped_lock lock { m_epoch_sl };
-            epoch = &m_thread_epoch[std::this_thread::get_id()];
+            thread_epoch = &(m_thread_epoch.insert({ std::this_thread::get_id(), c_before_epoch }).first->second);
         }
-        *epoch = m_epoch.fetch_add(1, mo::relaxed);
+        /*epoch_type & thread_epoch { std::invoke([queue = this] () -> epoch_type & {
+            scoped_lock lock { queue->m_epoch_sl };
+            return queue->m_thread_epoch.insert({ std::this_thread::get_id(), c_before_epoch }).first->second;
+        }) };*/
 
         node * new_node { new node(std::forward<U>(value)) };
 
@@ -179,12 +207,13 @@ namespace xtxn {
             }
         }
 
-        *epoch = node::c_active;
+        *thread_epoch = epoch;
         return true;
     }
 
-    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD>
-    std::unique_ptr<T> mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD>::dequeue() {
+    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD, int PURGE_SKIP_FIRST>
+    requires (PURGE_COUNTER >= 4) && (PURGE_SKIP_FIRST >= 4)
+    std::unique_ptr<T> mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD, PURGE_SKIP_FIRST>::dequeue() {
         if constexpr (PURGE_THREAD) {
             m_purge_counter.fetch_sub(1, mo::acq_rel);
         } else {
@@ -194,19 +223,24 @@ namespace xtxn {
             }
         }
 
-        uint_fast64_t * epoch { nullptr };
+        epoch_type epoch { m_epoch.fetch_add(1, mo::relaxed) };
+        assert(epoch != c_beyond_epoch);
+        epoch_type * thread_epoch { nullptr };
         {
             scoped_lock lock { m_epoch_sl };
-            epoch = &m_thread_epoch[std::this_thread::get_id()];
+            thread_epoch = &(m_thread_epoch.insert({ std::this_thread::get_id(), c_before_epoch }).first->second);
         }
-        *epoch = m_epoch.fetch_add(1, mo::relaxed);
+        /*epoch_type & thread_epoch { std::invoke([queue = this] () -> epoch_type & {
+            scoped_lock lock { queue->m_epoch_sl };
+            return queue->m_thread_epoch.insert({ std::this_thread::get_id(), c_before_epoch }).first->second;
+        }) };*/
 
         while (m_consuming.load(mo::relaxed)) {
             node * head { m_head.load(mo::acquire) };
             node * first { head->m_next.load(mo::acquire) };
 
             if (first == nullptr) {
-                *epoch = node::c_active;
+                *thread_epoch = epoch;
                 return { nullptr };
             }
 
@@ -215,37 +249,36 @@ namespace xtxn {
                 continue;
             }
 
-            if (first->m_deleted_at.load(mo::acquire) != node::c_active) {
+            if (first->m_deleted_at.load(mo::acquire) != c_beyond_epoch) {
                 continue;
             }
 
             if (m_head.compare_exchange_strong(head, first, mo::acq_rel, mo::acquire)) {
                 auto result = std::move(first->m_data);
-                first->m_deleted_at.store(*epoch, mo::release);
+                first->m_deleted_at.store(epoch, mo::release);
                 head->m_next_deleted.store(m_deleted.exchange(head, mo::acq_rel), mo::release);
-                *epoch = node::c_active;
+                *thread_epoch = epoch;
                 return result;
             }
         }
 
-        *epoch = node::c_active;
+        *thread_epoch = epoch;
         return { nullptr };
     }
 
-    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD>
-    void mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD>::purge() {
+    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD, int PURGE_SKIP_FIRST>
+    requires (PURGE_COUNTER >= 4) && (PURGE_SKIP_FIRST >= 4)
+    void mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD, PURGE_SKIP_FIRST>::purge() {
         scoped_lock purge_lock { m_purge_sl };
 
-        constexpr int skip_first { 4 };
-
-        uint_fast64_t min_epoch {};
+        epoch_type min_epoch { m_epoch.load(mo::acquire) };
         {
             scoped_lock epoch_lock { m_epoch_sl };
             auto min_it
                 = std::ranges::min_element(
                     m_thread_epoch,
                     {},
-                    &std::pair<const std::thread::id, uint_fast64_t>::second
+                    &std::pair<const std::thread::id, epoch_type>::second
                 );
             /*auto min_it
                 = std::min_element(
@@ -256,30 +289,32 @@ namespace xtxn {
             if (min_it == m_thread_epoch.end()) {
                 return;
             }
-            min_epoch = min_it->second;
+            if (min_epoch > min_it->second) {
+                min_epoch = min_it->second;
+            }
         }
 
-        int count { skip_first };
+        int count { PURGE_SKIP_FIRST };
         node * last { nullptr };
-        node * curr { m_deleted.load(mo::acquire) };
-        while (curr && count--) {
-            node * next { curr->m_next_deleted.load(mo::acquire) };
-            last = curr;
-            curr = next;
+        node * current { m_deleted.load(mo::acquire) };
+        while (current && count--) {
+            node * next { current->m_next_deleted.load(mo::acquire) };
+            last = current;
+            current = next;
         }
         if (!last) {
             return;
         }
 
-        while (curr) {
-            node * next { curr->m_next_deleted.load(mo::acquire) };
-            if (auto deleted_at = curr->m_deleted_at.load(mo::acquire); deleted_at >= min_epoch) {
-                last->m_next_deleted.store(curr, mo::release);
-                last = curr;
+        while (current) {
+            node * next { current->m_next_deleted.load(mo::acquire) };
+            if (auto deleted_at = current->m_deleted_at.load(mo::acquire); deleted_at >= min_epoch) {
+                last->m_next_deleted.store(current, mo::release);
+                last = current;
             } else {
-                delete curr;
+                delete current;
             }
-            curr = next;
+            current = next;
         }
 
         last->m_next_deleted.store(nullptr, mo::release);

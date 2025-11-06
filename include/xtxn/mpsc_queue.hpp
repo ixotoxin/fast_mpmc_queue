@@ -4,6 +4,7 @@
 #pragma once
 
 #include <atomic>
+#include <memory>
 
 namespace xtxn {
     template<typename T>
@@ -57,20 +58,28 @@ namespace xtxn {
     };
 
     template<typename T>
-    struct mpsc_queue<T>::node {
+    struct mpsc_queue<T>::node final {
         std::unique_ptr<T> m_data;
-        std::atomic<node*> m_next;
+        std::atomic<node *> m_next { nullptr };
 
-        node() : m_data { nullptr }, m_next { nullptr } {}
+        node() : m_data { nullptr } {}
+        node(const node &) = delete;
+        node(node && other) = delete;
 
         template <typename U>
         explicit node(U && value) // NOLINT(*-forwarding-reference-overload)
-        : m_data { std::make_unique<T>(std::forward<U>(value)) }, m_next { nullptr } {}
+        : m_data { std::make_unique<T>(std::forward<U>(value)) } {}
+
+        ~node() = default;
+
+        node & operator=(const node &) = delete;
+        node & operator=(node && other) = delete;
     };
 
     template<typename T>
     mpsc_queue<T>::~mpsc_queue() {
         stop();
+
         node * current { m_head.load(mo::relaxed) };
         while (current) {
             node * next { current->m_next.load(mo::relaxed) };
@@ -87,8 +96,7 @@ namespace xtxn {
         }
 
         node * new_node { new node(std::forward<U>(value)) };
-        node * prev_tail { m_tail.exchange(new_node, mo::acq_rel) };
-        prev_tail->m_next.store(new_node, mo::release);
+        m_tail.exchange(new_node, mo::acq_rel)->m_next.store(new_node, mo::release);
 
         return true;
     }
@@ -103,11 +111,8 @@ namespace xtxn {
         if (!next) {
             return { nullptr };
         }
-        node * prev_head { m_head.exchange(next, mo::acq_rel) };
-        std::unique_ptr<T> result { std::move(next->m_data) };
+        delete m_head.exchange(next, mo::acq_rel);
 
-        delete prev_head;
-
-        return result;
+        return std::move(next->m_data);
     }
 }

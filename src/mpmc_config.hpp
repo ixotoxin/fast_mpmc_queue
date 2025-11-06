@@ -4,13 +4,18 @@
 #pragma once
 
 #include "common.hpp"
-
-#include <algorithm>
+#include <cstdint>
 #include <thread>
+#include <algorithm>
 
 #ifdef _DEBUG
-    constexpr int pre_test_iters { 100 };
-    constexpr int64_t pre_test_items { 100 };
+#   ifdef ENABLE_MEMORY_PROFILING
+        constexpr int pre_test_iters { 2 };
+        constexpr int64_t pre_test_items { 100 };
+#   else
+        constexpr int pre_test_iters { 100 };
+        constexpr int64_t pre_test_items { 100 };
+#   endif
 #else
     constexpr int pre_test_iters { 1'000 };
     constexpr int64_t pre_test_items { 100 };

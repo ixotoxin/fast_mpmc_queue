@@ -4,8 +4,8 @@
 #pragma once
 
 #include <cassert>
-#include <concepts>
 #include <cstdint>
+#include <concepts>
 #include <limits>
 #include <array>
 #include "spinlock.hpp"
@@ -55,6 +55,7 @@ namespace xtxn {
     constexpr int32_t queue_default_block_size [[maybe_unused]] { 0x10 };
     constexpr int32_t queue_default_capacity_limit [[maybe_unused]] { queue_default_block_size * 0x1'0000 };
     constexpr int32_t queue_max_capacity_limit [[maybe_unused]] { std::numeric_limits<int32_t>::max() };
+    constexpr bool queue_default_completion [[maybe_unused]] { true };
     constexpr int32_t queue_default_attempts [[maybe_unused]] { 5 };
     constexpr int32_t queue_max_attempts [[maybe_unused]] { std::numeric_limits<int32_t>::max() };
 
@@ -62,7 +63,7 @@ namespace xtxn {
         std::default_initializable T,
         int32_t S = queue_default_block_size,
         int32_t L = queue_default_capacity_limit,
-        bool C = true,
+        bool C = queue_default_completion,
         int32_t A = queue_default_attempts,
         queue_growth_policy G = queue_growth_policy::round
     >

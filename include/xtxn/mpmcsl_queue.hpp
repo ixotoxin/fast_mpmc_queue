@@ -85,12 +85,14 @@ namespace xtxn {
     template<typename T>
     mpmcsl_queue<T>::~mpmcsl_queue() {
         stop();
+
         scoped_lock lock { m_spinlock };
-        node * curr { m_head.load(mo::relaxed) };
-        while (curr) {
-            node * next { curr->m_next.load(mo::relaxed) };
-            delete curr;
-            curr = next;
+
+        node * current { m_head.load(mo::relaxed) };
+        while (current) {
+            node * next { current->m_next.load(mo::relaxed) };
+            delete current;
+            current = next;
         }
     }
 
@@ -104,8 +106,7 @@ namespace xtxn {
         scoped_lock lock { m_spinlock };
 
         node * new_node { new node(std::forward<U>(value)) };
-        node * prev_tail { m_tail.exchange(new_node, mo::acq_rel) };
-        prev_tail->m_next.store(new_node, mo::release);
+        m_tail.exchange(new_node, mo::acq_rel)->m_next.store(new_node, mo::release);
 
         return true;
     }
@@ -122,11 +123,8 @@ namespace xtxn {
         if (!next) {
             return { nullptr };
         }
-        node * prev_head { m_head.exchange(next, mo::acq_rel) };
-        std::unique_ptr<T> result { std::move(next->m_data) };
+        delete m_head.exchange(next, mo::acq_rel);
 
-        delete prev_head;
-
-        return result;
+        return std::move(next->m_data);
     }
 }

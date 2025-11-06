@@ -5,11 +5,11 @@
 #include "mpmc_config.hpp"
 #include "messages.hpp"
 #include <xtxn/fast_mpmc_queue.hpp>
-
+#include <cassert>
 #include <cstdlib>
+#include <atomic>
 #include <iostream>
 #include <chrono>
-#include <atomic>
 #include <vector>
 #include <unordered_map>
 #include <thread>
@@ -91,11 +91,13 @@ void queue_test(
         );
     }
 
-    while (counter.load() > 0 /*|| !queue.empty()*/ || con_successes.load() < items) {
+    while (counter.load() > 0 || con_successes.load() < items) {
         std::this_thread::yield();
     }
     queue.stop();
     exit_latch.arrive_and_wait();
+
+    assert(queue.empty());
 
     auto t2 = std::chrono::steady_clock::now();
     auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
@@ -132,9 +134,10 @@ int main(int, char **) {
 
     std::cout << is_complete;
 
-    queue_test<1'000, 10'000>(100ll,    producers_a, consumers_a, thin_separator);
-    queue_test<1'000, 10'000>(1'000ll,  producers_a, consumers_a, thin_separator);
-    queue_test<1'000, 10'000>(10'000ll, producers_a, consumers_a, thick_separator);
+    queue_test<1'000, 10'000>(100ll,     producers_d, consumers_d, thin_separator);
+    queue_test<1'000, 10'000>(1'000ll,   producers_d, consumers_d, thin_separator);
+    queue_test<1'000, 10'000>(10'000ll,  producers_d, consumers_d, thin_separator);
+    queue_test<1'000, 10'000>(100'000ll, producers_d, consumers_d, thick_separator);
 
 #ifndef _DEBUG
 
