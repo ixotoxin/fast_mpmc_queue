@@ -30,7 +30,7 @@ where
 - `S` - Number of slots per block;
 - `L` - Maximum queue size (in slots);
 - `C` - Auto complete flag;
-- `A` - Default producer slot acquire attempts;
+- `A` - Default slot acquire attempts;
 - `G` - Growth policy (per call, round, or step).
 
 ```c++

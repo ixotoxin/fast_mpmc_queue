@@ -354,7 +354,7 @@ namespace xtxn {
     template<std::default_initializable T, int32_t S, int32_t L, bool C, int32_t A, queue_growth_policy G>
     requires ((S >= 4) && (L <= queue_max_capacity_limit) && (S <= L) && (A > 0) && (A <= queue_max_attempts))
     auto fast_mpmc_queue<T, S, L, C, A, G>::producer_slot(int32_t slot_acquire_attempts) -> producer_accessor {
-        if (/*!m_producing.load(mo::relaxed) ||*/ (!m_free.load(mo::acquire) && !grow())) {
+        if (!m_free.load(mo::acquire) && !grow()) {
             return { *this, nullptr };
         }
 
@@ -362,7 +362,7 @@ namespace xtxn {
         slot * sentinel { m_producer_cursor.exchange(m_producer_cursor.load(mo::acquire)->m_next, mo::acq_rel) };
         slot * current { sentinel };
 
-        while (m_free.load(mo::acquire) && m_producing.load(mo::relaxed)) {
+        while (m_producing.load(mo::relaxed)) {
             state slot_state { state::free };
             if (current->m_state.compare_exchange_strong(slot_state, state::prod_locked, mo::acq_rel, mo::acquire)) {
                 return { *this, current };
@@ -392,15 +392,11 @@ namespace xtxn {
     template<std::default_initializable T, int32_t S, int32_t L, bool C, int32_t A, queue_growth_policy G>
     requires ((S >= 4) && (L <= queue_max_capacity_limit) && (S <= L) && (A > 0) && (A <= queue_max_attempts))
     auto fast_mpmc_queue<T, S, L, C, A, G>::consumer_slot(int32_t slot_acquire_attempts) -> consumer_accessor {
-        /*if (!m_consuming.load(mo::relaxed) || (m_free.load(mo::acquire) == m_capacity.load(mo::acquire))) {
-            return { *this, nullptr };
-        }*/
-
         int_fast32_t attempts { slot_acquire_attempts - 1 };
         slot * sentinel { m_consumer_cursor.exchange(m_consumer_cursor.load(mo::acquire)->m_next, mo::acq_rel) };
         slot * current { sentinel };
 
-        while (m_free.load(mo::acquire) != m_capacity.load(mo::acquire) && m_consuming.load(mo::relaxed)) {
+        while (m_consuming.load(mo::relaxed) && m_free.load(mo::acquire) != m_capacity.load(mo::acquire)) {
             state slot_state { state::ready };
             if (current->m_state.compare_exchange_strong(slot_state, state::cons_locked, mo::acq_rel, mo::acquire)) {
                 return { *this, current };
@@ -423,7 +419,9 @@ namespace xtxn {
     bool fast_mpmc_queue<T, S, L, C, A, G>::grow() noexcept {
         scoped_lock lock { m_spinlock };
 
-        if (m_capacity.load(mo::acquire) + S > L) {
+        if (m_free.load(mo::acquire)) {
+            return true;
+        } else if (m_capacity.load(mo::acquire) + S > L) {
             return false;
         }
 

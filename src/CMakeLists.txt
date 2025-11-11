@@ -20,8 +20,13 @@ target_compile_definitions(test_fast_mpsc PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFI
 add_executable(test_fast_mpmc test_fast_mpmc_main.cpp)
 target_compile_definitions(test_fast_mpmc PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
 
-add_executable(stress_test_mpmc stress_test_mpmc_main.cpp)
-target_compile_definitions(stress_test_mpmc PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(EXECUTABLES test_mpsc test_mpmc test_mpmcdd test_mpmcsl test_fast_mpsc test_fast_mpmc)
+else ()
+    add_executable(stress_test_mpmc stress_test_mpmc_main.cpp)
+    target_compile_definitions(stress_test_mpmc PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
+    set(EXECUTABLES test_mpsc test_mpmc test_mpmcdd test_mpmcsl test_fast_mpsc test_fast_mpmc stress_test_mpmc)
+endif ()
 
 if (WIN32)
     if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -31,7 +36,7 @@ if (WIN32)
         endif()
     endif ()
     install(
-        TARGETS test_mpsc test_mpmc test_mpmcdd test_mpmcsl test_fast_mpsc test_fast_mpmc stress_test_mpmc
+        TARGETS ${EXECUTABLES}
         RUNTIME_DEPENDENCIES
         PRE_EXCLUDE_REGEXES "api-ms-" "ext-ms-"
         POST_EXCLUDE_REGEXES ".*system32/.*\\.dll"
@@ -40,7 +45,7 @@ if (WIN32)
     )
 else ()
     install(
-        TARGETS test_mpsc test_mpmc test_mpmcdd test_mpmcsl test_fast_mpsc test_fast_mpmc stress_test_mpmc
+        TARGETS ${EXECUTABLES}
         DESTINATION bin
     )
 endif ()
