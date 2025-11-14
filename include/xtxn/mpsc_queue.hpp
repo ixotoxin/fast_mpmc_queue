@@ -102,6 +102,7 @@ namespace xtxn {
     }
 
     template<typename T>
+    [[nodiscard]]
     std::unique_ptr<T> mpsc_queue<T>::dequeue() {
         if (!m_consuming.load(mo::relaxed)) {
             return { nullptr };

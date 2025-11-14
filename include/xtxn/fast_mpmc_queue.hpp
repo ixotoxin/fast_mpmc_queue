@@ -97,6 +97,7 @@ namespace xtxn {
         static constexpr decltype(m_capacity)::value_type c_max_capacity [[maybe_unused]] { L };
         static constexpr bool c_auto_complete [[maybe_unused]] { slot_completion::c_auto_complete };
         static constexpr int32_t c_default_attempts [[maybe_unused]] { A };
+        static constexpr queue_growth_policy c_growth_policy [[maybe_unused]] { G };
 
         fast_mpmc_queue();
         fast_mpmc_queue(const fast_mpmc_queue &) = delete;
@@ -431,4 +432,10 @@ namespace xtxn {
 
         return true;
     }
+
+    template<class T>
+    concept fast_mpmc_queue_type = requires(T t) {
+        [] <std::default_initializable U, int32_t S, int32_t L, bool C, int32_t A, queue_growth_policy G>
+        (fast_mpmc_queue<U, S, L, C, A, G> &) {} (t);
+    };
 }

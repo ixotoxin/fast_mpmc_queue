@@ -23,11 +23,11 @@ namespace xtxn {
 
     template<
         typename T,
-        int64_t PURGE_COUNTER = queue_default_purge_counter,
-        bool PURGE_THREAD = queue_default_purge_thread,
-        int PURGE_SKIP_FIRST = queue_default_purge_skip_first
+        int64_t C = queue_default_purge_counter,
+        bool H = queue_default_purge_thread,
+        int S = queue_default_purge_skip_first
     >
-    requires (PURGE_COUNTER >= 4) && (PURGE_SKIP_FIRST >= 4)
+    requires (C >= 4) && (S >= 4)
     class alignas(std::hardware_constructive_interference_size) mpmc_queue final {
         struct node;
         using mo = std::memory_order;
@@ -40,7 +40,7 @@ namespace xtxn {
         std::atomic<node *> m_head;
         std::atomic<node *> m_tail;
         std::atomic<node *> m_deleted { nullptr };
-        std::atomic_int_fast64_t m_purge_counter { PURGE_COUNTER };
+        std::atomic_int_fast64_t m_purge_counter { C };
         std::atomic<epoch_type> m_epoch { c_before_epoch + 1 };
         spinlock<spin::yield_thread> m_purge_sl {};
         spinlock<spin::active> m_epoch_sl {};
@@ -100,9 +100,9 @@ namespace xtxn {
         }
     };
 
-    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD, int PURGE_SKIP_FIRST>
-    requires (PURGE_COUNTER >= 4) && (PURGE_SKIP_FIRST >= 4)
-    struct mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD, PURGE_SKIP_FIRST>::node final {
+    template<typename T, int64_t C, bool H, int S>
+    requires (C >= 4) && (S >= 4)
+    struct mpmc_queue<T, C, H, S>::node final {
         std::unique_ptr<T> m_data;
         std::atomic<node *> m_next { nullptr };
         std::atomic<node *> m_next_deleted { nullptr };
@@ -122,11 +122,11 @@ namespace xtxn {
         node & operator=(node && other) = delete;
     };
 
-    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD, int PURGE_SKIP_FIRST>
-    requires (PURGE_COUNTER >= 4) && (PURGE_SKIP_FIRST >= 4)
-    mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD, PURGE_SKIP_FIRST>::mpmc_queue()
+    template<typename T, int64_t C, bool H, int S>
+    requires (C >= 4) && (S >= 4)
+    mpmc_queue<T, C, H, S>::mpmc_queue()
     : m_head { new node }, m_tail { m_head.load(mo::relaxed) } {
-        if constexpr (PURGE_THREAD) {
+        if constexpr (H) {
             std::thread(
                 [queue = this] {
                     while (queue->m_consuming.load(mo::acquire)) {
@@ -137,16 +137,16 @@ namespace xtxn {
                             }
                         }
                         queue->purge();
-                        queue->m_purge_counter.store(PURGE_COUNTER, mo::release);
+                        queue->m_purge_counter.store(C, mo::release);
                     }
                 }
             ).detach();
         }
     }
 
-    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD, int PURGE_SKIP_FIRST>
-    requires (PURGE_COUNTER >= 4) && (PURGE_SKIP_FIRST >= 4)
-    mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD, PURGE_SKIP_FIRST>::~mpmc_queue() {
+    template<typename T, int64_t C, bool H, int S>
+    requires (C >= 4) && (S >= 4)
+    mpmc_queue<T, C, H, S>::~mpmc_queue() {
         stop();
 
         scoped_lock lock { m_purge_sl };
@@ -170,10 +170,10 @@ namespace xtxn {
         }
     }
 
-    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD, int PURGE_SKIP_FIRST>
-    requires (PURGE_COUNTER >= 4) && (PURGE_SKIP_FIRST >= 4)
+    template<typename T, int64_t C, bool H, int S>
+    requires (C >= 4) && (S >= 4)
     template<typename U>
-    bool mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD, PURGE_SKIP_FIRST>::enqueue(U && value) {
+    bool mpmc_queue<T, C, H, S>::enqueue(U && value) {
         if (!m_producing.load(mo::relaxed)) {
             return false;
         }
@@ -211,15 +211,16 @@ namespace xtxn {
         return true;
     }
 
-    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD, int PURGE_SKIP_FIRST>
-    requires (PURGE_COUNTER >= 4) && (PURGE_SKIP_FIRST >= 4)
-    std::unique_ptr<T> mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD, PURGE_SKIP_FIRST>::dequeue() {
-        if constexpr (PURGE_THREAD) {
+    template<typename T, int64_t C, bool H, int S>
+    requires (C >= 4) && (S >= 4)
+    [[nodiscard]]
+    std::unique_ptr<T> mpmc_queue<T, C, H, S>::dequeue() {
+        if constexpr (H) {
             m_purge_counter.fetch_sub(1, mo::acq_rel);
         } else {
             if (m_purge_counter.fetch_sub(1, mo::acq_rel) == 1) {
                 purge();
-                m_purge_counter.store(PURGE_COUNTER, mo::release);
+                m_purge_counter.store(C, mo::release);
             }
         }
 
@@ -266,9 +267,9 @@ namespace xtxn {
         return { nullptr };
     }
 
-    template<typename T, int64_t PURGE_COUNTER, bool PURGE_THREAD, int PURGE_SKIP_FIRST>
-    requires (PURGE_COUNTER >= 4) && (PURGE_SKIP_FIRST >= 4)
-    void mpmc_queue<T, PURGE_COUNTER, PURGE_THREAD, PURGE_SKIP_FIRST>::purge() {
+    template<typename T, int64_t C, bool H, int S>
+    requires (C >= 4) && (S >= 4)
+    void mpmc_queue<T, C, H, S>::purge() {
         scoped_lock purge_lock { m_purge_sl };
 
         epoch_type min_epoch { m_epoch.load(mo::acquire) };
@@ -294,7 +295,7 @@ namespace xtxn {
             }
         }
 
-        int count { PURGE_SKIP_FIRST };
+        int count { S };
         node * last { nullptr };
         node * current { m_deleted.load(mo::acquire) };
         while (current && count--) {

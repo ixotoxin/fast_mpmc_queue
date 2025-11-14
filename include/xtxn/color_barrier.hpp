@@ -32,8 +32,8 @@ namespace xtxn {
         red_lock(const red_lock &) = delete;
         red_lock(red_lock &&) = delete;
 
-        explicit red_lock(color_barrier & separator)
-        : m_color_barrier { separator } {
+        explicit red_lock(color_barrier & barrier)
+        : m_color_barrier { barrier } {
             while (m_color_barrier.m_green_counter.load(std::memory_order_acquire)) {
                 std::this_thread::yield();
             }
@@ -56,8 +56,8 @@ namespace xtxn {
         green_lock(const green_lock &) = delete;
         green_lock(green_lock &&) = delete;
 
-        explicit green_lock(color_barrier & separator)
-        : m_color_barrier { separator } {
+        explicit green_lock(color_barrier & barrier)
+        : m_color_barrier { barrier } {
             while (m_color_barrier.m_red_counter.load(std::memory_order_acquire)) {
                 std::this_thread::yield();
             }

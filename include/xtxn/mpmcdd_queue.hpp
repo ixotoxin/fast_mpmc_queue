@@ -139,6 +139,7 @@ namespace xtxn {
     }
 
     template<typename T>
+    [[nodiscard]]
     std::unique_ptr<T> mpmcdd_queue<T>::dequeue() {
         green_lock lock { m_barrier };
 
@@ -172,6 +173,7 @@ namespace xtxn {
     }
 
     template<typename T>
+    [[maybe_unused]]
     void mpmcdd_queue<T>::purge() {
         red_lock lock { m_barrier };
 
