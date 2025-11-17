@@ -8,6 +8,9 @@
 int main(int, char **) {
     config_console();
     config_profiler();
-    queue_test<xtxn::mpmcsl_queue<item_type>>("CLASSIC MPMC QUEUE TEST (MPSC WITH SPINLOCK)", mpmc_test_config {});
+    test::perform<xtxn::mpmcsl_queue<test::item_type>>(
+        "CLASSIC MPMC QUEUE TEST (MPSC WITH SPINLOCK)",
+        test::config::mpmc {}
+    );
     return EXIT_SUCCESS;
 }

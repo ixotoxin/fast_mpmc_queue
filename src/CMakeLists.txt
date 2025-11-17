@@ -20,12 +20,29 @@ target_compile_definitions(test_fast_mpsc PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFI
 add_executable(test_fast_mpmc test_fast_mpmc_main.cpp)
 target_compile_definitions(test_fast_mpmc PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
 
+add_executable(test_fastest_mpmc test_fastest_mpmc_main.cpp)
+target_compile_definitions(test_fastest_mpmc PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
+
+add_executable(test_fastest_mpsc test_fastest_mpsc_main.cpp)
+target_compile_definitions(test_fastest_mpsc PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
+
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
-    set(EXECUTABLES test_mpsc test_mpmc test_mpmcdd test_mpmcsl test_fast_mpsc test_fast_mpmc)
+    set(
+        EXECUTABLES
+        test_mpsc test_mpmc test_mpmcdd test_mpmcsl
+        test_fast_mpsc test_fast_mpmc
+        test_fastest_mpsc test_fastest_mpmc
+    )
 else ()
     add_executable(stress_test_mpmc stress_test_mpmc_main.cpp)
     target_compile_definitions(stress_test_mpmc PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
-    set(EXECUTABLES test_mpsc test_mpmc test_mpmcdd test_mpmcsl test_fast_mpsc test_fast_mpmc stress_test_mpmc)
+    set(
+        EXECUTABLES
+        test_mpsc test_mpmc test_mpmcdd test_mpmcsl
+        test_fast_mpsc test_fast_mpmc
+        test_fastest_mpsc test_fastest_mpmc
+        stress_test_mpmc
+    )
 endif ()
 
 if (WIN32)
@@ -57,4 +74,6 @@ if (BUILD_TESTS)
     add_test(NAME test_mpmcsl COMMAND test_mpmcsl)
     add_test(NAME test_fast_mpsc COMMAND test_fast_mpsc)
     add_test(NAME test_fast_mpmc COMMAND test_fast_mpmc)
+    add_test(NAME test_fastest_mpsc COMMAND test_fastest_mpsc)
+    add_test(NAME test_fastest_mpmc COMMAND test_fastest_mpmc)
 endif ()

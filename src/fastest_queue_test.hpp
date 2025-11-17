@@ -5,54 +5,55 @@
 
 #include "messages.hpp"
 #include "types.hpp"
+#include <xtxn/fastest_mpmc_queue.hpp>
 #include <cassert>
 #include <cstdlib>
 #include <cstdint>
 #include <atomic>
 #include <chrono>
 #include <vector>
+#include <unordered_map>
 #include <thread>
 #include <latch>
 #include <iostream>
 
 namespace test {
     namespace {
-        template<class T, typename U = item_type>
-        concept queue_type = requires(T t, U u) {
-            { t.empty() } -> std::same_as<bool>;
-            { t.producing() } -> std::same_as<bool>;
-            { t.consuming() } -> std::same_as<bool>;
-            { t.enqueue(u) } -> std::same_as<bool>;
-            { t.dequeue() } -> std::same_as<std::unique_ptr<U>>;
-            { t.shutdown() };
-            { t.stop() };
-        };
+        template<signed S, signed A = 10>
+        using queue = xtxn::fastest_mpmc_queue<item_type, S, true, A>;
 
         auto create_producer(
-            queue_type auto & queue,
+            xtxn::fastest_mpmc_queue_tc auto & queue,
             std::atomic<item_type> & counter,
             std::atomic_int_fast64_t & time,
             std::atomic_int_fast64_t & successes,
+            std::atomic_int_fast64_t & fails,
             std::latch & latch
         ) {
             return
-                [& queue, & counter, & time, & successes, & latch] {
+                [& queue, & counter, & time, & successes, & fails, & latch] {
                     item_type value { counter.fetch_sub(1, std::memory_order_acq_rel) };
                     while (value > 0) {
                         auto t1 = std::chrono::steady_clock::now();
-                        queue.enqueue(value);
+                        auto slot = queue.producer_slot();
                         auto t2 = std::chrono::steady_clock::now();
                         auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
                         time.fetch_add(t3, std::memory_order_acq_rel);
-                        value = counter.fetch_sub(1, std::memory_order_acq_rel);
-                        successes.fetch_add(1, std::memory_order_acq_rel);
+                        if (slot) {
+                            *slot = value;
+                            value = counter.fetch_sub(1, std::memory_order_acq_rel);
+                            successes.fetch_add(1, std::memory_order_acq_rel);
+                        } else {
+                            fails.fetch_add(1, std::memory_order_acq_rel);
+                            std::this_thread::yield();
+                        }
                     }
                     latch.arrive_and_wait();
                 };
         }
 
         auto create_consumer(
-            queue_type auto & queue,
+            xtxn::fastest_mpmc_queue_tc auto & queue,
             std::atomic<item_type> & result,
             std::atomic_int_fast64_t & time,
             std::atomic_int_fast64_t & successes,
@@ -63,12 +64,12 @@ namespace test {
                 [& queue, & result, & time, & successes, & fails, & latch] {
                     while (queue.consuming()) {
                         auto t1 = std::chrono::steady_clock::now();
-                        auto item = queue.dequeue();
+                        auto slot = queue.consumer_slot();
                         auto t2 = std::chrono::steady_clock::now();
                         auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
                         time.fetch_add(t3, std::memory_order_acq_rel);
-                        if (item) {
-                            result.fetch_add(*item, std::memory_order_acq_rel);
+                        if (slot) {
+                            result.fetch_add(*slot, std::memory_order_acq_rel);
                             successes.fetch_add(1, std::memory_order_acq_rel);
                         } else {
                             fails.fetch_add(1, std::memory_order_acq_rel);
@@ -80,13 +81,14 @@ namespace test {
         }
     }
 
-    template<queue_type T>
+    template<xtxn::fastest_mpmc_queue_tc T>
     int perform(std::stringstream & stream, const item_type items, const config_set & config) {
         T queue {};
         std::vector<std::jthread> pool {};
         std::latch latch { config.first + config.second + 1 };
         std::atomic_int_fast64_t pro_time { 0 };
         std::atomic_int_fast64_t pro_successes { 0 };
+        std::atomic_int_fast64_t pro_fails { 0 };
         std::atomic_int_fast64_t con_time { 0 };
         std::atomic_int_fast64_t con_successes { 0 };
         std::atomic_int_fast64_t con_fails { 0 };
@@ -100,7 +102,7 @@ namespace test {
         }
 
         for (unsigned i { config.first }; i; --i) {
-            pool.emplace_back(create_producer(queue, counter, pro_time, pro_successes, latch));
+            pool.emplace_back(create_producer(queue, counter, pro_time, pro_successes, pro_fails, latch));
         }
 
         while (counter.load() > 0 || con_successes.load() < items) {
@@ -116,13 +118,20 @@ namespace test {
         int exit_code { result.load() == ((items * (items + 1)) >> 1) ? EXIT_SUCCESS : EXIT_FAILURE };
 
         summary_a(stream, items);
-        summary_c(stream, config.first, pro_time, pro_successes, 0, config.second, con_time, con_successes, con_fails);
+        summary_b(stream, T::c_default_attempts);
+
+        summary_c(
+            stream, config.first, pro_time, pro_successes, pro_fails,
+            config.second, con_time, con_successes, con_fails
+        );
+
+        summary_d(stream, queue.capacity());
         summary_e(stream, exit_code == EXIT_SUCCESS, t3);
 
         return exit_code;
     }
 
-    template<queue_type T>
+    template<xtxn::fastest_mpmc_queue_tc T>
     void perform(const item_type items, const config_set & config, std::string_view separator) {
         std::stringstream str {};
         int result { perform<T>(str, items, config) };
@@ -132,7 +141,7 @@ namespace test {
         }
     }
 
-    template<queue_type T>
+    template<xtxn::fastest_mpmc_queue_tc T>
     void perform(const int iters, const item_type items, const config_set & config) {
         for (int i { iters }; i; --i) {
             std::stringstream str {};
@@ -144,27 +153,37 @@ namespace test {
         }
     }
 
-    template<queue_type T>
     void perform(std::string_view test_name, auto test_config) {
         std::cout << thick_separator << "   " << test_name << '\n' << prelim_test;
 
-        perform<T>(test_config.prelim_test_iters, test_config.prelim_test_items, test_config.set_d);
+        perform<queue<100>>(test_config.prelim_test_iters, test_config.prelim_test_items, test_config.set_d);
 
         std::cout << is_complete;
 
-        perform<T>(100ll, test_config.set_d, thin_separator);
-        perform<T>(1'000ll, test_config.set_d, thin_separator);
-        perform<T>(10'000ll, test_config.set_d, thin_separator);
-        perform<T>(100'000ll, test_config.set_d, thick_separator);
+        perform<queue<1'000>>(100ll, test_config.set_d, thin_separator);
+        perform<queue<1'000>>(1'000ll, test_config.set_d, thin_separator);
+        perform<queue<1'000>>(10'000ll, test_config.set_d, thin_separator);
+        perform<queue<1'000>>(100'000ll, test_config.set_d, thick_separator);
 
 #ifndef _DEBUG
 
+        std::cout << diff_size_and_attempts;
+
+        perform<queue<10, 1>>(1'000'000ll, test_config.set_a, thin_separator);
+        perform<queue<10, 100>>(1'000'000ll, test_config.set_a, thin_separator);
+        perform<queue<100, 1>>(1'000'000ll, test_config.set_a, thin_separator);
+        perform<queue<100, 100>>(1'000'000ll, test_config.set_a, thin_separator);
+        perform<queue<1'000, 1>>(1'000'000ll, test_config.set_a, thin_separator);
+        perform<queue<1'000, 100>>(1'000'000ll, test_config.set_a, thick_separator);
+        perform<queue<10'000, 1>>(1'000'000ll, test_config.set_a, thin_separator);
+        perform<queue<10'000, 100>>(1'000'000ll, test_config.set_a, thick_separator);
+
         std::cout << diff_workers;
 
-        perform<T>(1'000'000ll, test_config.set_a, thin_separator);
-        perform<T>(1'000'000ll, test_config.set_b, thin_separator);
-        perform<T>(1'000'000ll, test_config.set_c, thin_separator);
-        perform<T>(1'000'000ll, test_config.set_d, thick_separator);
+        perform<queue<1'000, 10>>(1'000'000ll, test_config.set_a, thin_separator);
+        perform<queue<1'000, 10>>(1'000'000ll, test_config.set_b, thin_separator);
+        perform<queue<1'000, 10>>(1'000'000ll, test_config.set_c, thin_separator);
+        perform<queue<1'000, 10>>(1'000'000ll, test_config.set_d, thick_separator);
 
 #endif
 

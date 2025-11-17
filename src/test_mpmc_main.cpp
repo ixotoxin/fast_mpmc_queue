@@ -8,6 +8,9 @@
 int main(int, char **) {
     config_console();
     config_profiler();
-    queue_test<xtxn::mpmc_queue<item_type>>("CLASSIC MPMC QUEUE TEST (EPOCH-BASED RECLAMATION)", mpmc_test_config {});
+    test::perform<xtxn::mpmc_queue<test::item_type>>(
+        "CLASSIC MPMC QUEUE TEST (EPOCH-BASED RECLAMATION)",
+        test::config::mpmc {}
+    );
     return EXIT_SUCCESS;
 }

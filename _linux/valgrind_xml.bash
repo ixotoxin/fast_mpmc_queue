@@ -2,7 +2,7 @@
 
 VG_OPTS="--xml=yes --tool=memcheck --leak-check=full --leak-resolution=high --show-leak-kinds=all --show-error-list=yes"
 VG_OPTS="$VG_OPTS --keep-debuginfo=yes --vgdb=no --track-origins=yes --num-callers=100"
-BINS=(test_mpsc test_mpmc test_mpmcdd test_mpmcsl test_fast_mpsc test_fast_mpmc)
+BINS=(test_mpsc test_mpmc test_mpmcdd test_mpmcsl test_fast_mpsc test_fast_mpmc test_fastest_mpsc test_fastest_mpmc)
 [ ! -e ./log ] && mkdir ./log
 for FILE in "${BINS[@]}"; do
     BIN_FILE=./bin/${FILE}

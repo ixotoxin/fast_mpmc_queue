@@ -8,6 +8,6 @@
 int main(int, char **) {
     config_console();
     config_profiler();
-    queue_test<xtxn::mpsc_queue<item_type>>("CLASSIC MPSC QUEUE TEST", mpsc_test_config {});
+    test::perform<xtxn::mpsc_queue<test::item_type>>("CLASSIC MPSC QUEUE TEST", test::config::mpsc {});
     return EXIT_SUCCESS;
 }

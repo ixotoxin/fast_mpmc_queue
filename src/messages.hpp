@@ -64,6 +64,14 @@ inline void summary_a(
 
 inline void summary_b(
     std::stringstream & stream,
+    const int32_t attempts
+) {
+    stream
+        << "   Slot acquire attempts: " << attempts << '\n';
+}
+
+inline void summary_b(
+    std::stringstream & stream,
     const std::string_view policy,
     const int32_t attempts
 ) {
@@ -110,6 +118,14 @@ inline void summary_d(
     stream
         << "   Actual queue capacity: " << capacity
         << " slot (min: " << block_size << ", max: " << max_capacity << ")\n";
+}
+
+inline void summary_d(
+    std::stringstream & stream,
+    const std::integral auto capacity
+) {
+    stream
+        << "   Queue capacity: " << capacity << '\n';
 }
 
 inline void summary_e(

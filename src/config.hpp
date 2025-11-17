@@ -3,12 +3,6 @@
 
 #pragma once
 
-#include <cassert>
-#include <cstdint>
-#include <thread>
-#include <algorithm>
-#include <utility>
-
 #ifndef _DEBUG
 #   undef ENABLE_MEMORY_PROFILING
 #endif
@@ -25,8 +19,8 @@
 #   include <fcntl.h>
 #   include <clocale>
 #   if defined(ENABLE_MEMORY_PROFILING) && defined(_DEBUG) && (defined(_MSC_VER) || defined(__clang__))
-#       include <iostream>
 #       include <crtdbg.h>
+#       include <iostream>
 #   else
 #       undef ENABLE_MEMORY_PROFILING
 #   endif
@@ -56,72 +50,77 @@ inline void config_profiler() {
 #endif
 }
 
-struct prelim_test_config {
+#include "types.hpp"
+#include <cassert>
+#include <thread>
+#include <algorithm>
+
+namespace test::config {
+    struct prelim {
 #if defined(ENABLE_MEMORY_PROFILING)
-    const int prelim_test_iters { 2 };
-    const int64_t prelim_test_items { 100 };
+        const int prelim_test_iters { 2 };
+        const int64_t prelim_test_items { 100 };
 #elif defined(_DEBUG)
-    const int prelim_test_iters { 100 };
-    const int64_t prelim_test_items { 100 };
+        const int prelim_test_iters { 100 };
+        const int64_t prelim_test_items { 100 };
 #else
-    const int prelim_test_iters { 1'000 };
-    const int64_t prelim_test_items { 100 };
+        const int prelim_test_iters { 1'000 };
+        const int64_t prelim_test_items { 100 };
 #endif
-};
+    };
 
-using test_config = std::pair<unsigned, unsigned>; /** .first => producers number, .second => consumers number **/
+    struct mpsc : public prelim {
+        const unsigned cores;
+        const config_set set_a;
+        const config_set set_b;
+        const config_set set_c;
+        const config_set set_d;
 
-struct mpsc_test_config : public prelim_test_config {
-    const unsigned cores;
-    const test_config set_a;
-    const test_config set_b;
-    const test_config set_c;
-    const test_config set_d;
+        mpsc()
+        : prelim {},
+          cores { std::thread::hardware_concurrency() },
+          set_a { 1, 1 },
+          set_b { std::max(1u, cores - 1), 1 },
+          set_c { cores, 1 },
+          set_d { cores << 1, 1 } {}
 
-    mpsc_test_config()
-    : prelim_test_config {},
-      cores { std::thread::hardware_concurrency() },
-      set_a { 1, 1 },
-      set_b { std::max(1u, cores - 1), 1 },
-      set_c { cores, 1 },
-      set_d { cores << 1, 1 } {}
+        mpsc(const mpsc &) = delete;
+        mpsc(mpsc &&) = delete;
+        ~mpsc() = default;
 
-    mpsc_test_config(const mpsc_test_config &) = delete;
-    mpsc_test_config(mpsc_test_config &&) = delete;
-    ~mpsc_test_config() = default;
+        mpsc & operator=(const mpsc &) = delete;
+        mpsc & operator=(mpsc &&) = delete;
+    };
 
-    mpsc_test_config & operator=(const mpsc_test_config &) = delete;
-    mpsc_test_config & operator=(mpsc_test_config &&) = delete;
-};
+    struct mpmc : public prelim {
+        const unsigned cores;
+        const config_set set_a;
+        const config_set set_b;
+        const config_set set_c;
+        const config_set set_d;
 
-struct mpmc_test_config : public prelim_test_config {
-    const unsigned cores;
-    const test_config set_a;
-    const test_config set_b;
-    const test_config set_c;
-    const test_config set_d;
+        mpmc()
+        : prelim {},
+          cores { std::thread::hardware_concurrency() },
+          set_a { proportion(cores, cores >> 1) },
+          set_b { proportion(cores, static_cast<unsigned>(static_cast<double>(cores) / 3.0 * 2.0)) },
+          set_c { same(cores) },
+          set_d { same(cores << 1) } {}
 
-    mpmc_test_config()
-    : prelim_test_config {},
-      cores { std::thread::hardware_concurrency() },
-      set_a { proportion(cores, cores >> 1) },
-      set_b { proportion(cores, static_cast<unsigned>(static_cast<double>(cores) / 3.0 * 2.0)) },
-      set_c { same(cores) },
-      set_d { same(cores << 1) } {}
+        mpmc(const mpmc &) = delete;
+        mpmc(mpmc &&) = delete;
+        ~mpmc() = default;
 
-    mpmc_test_config(const mpmc_test_config &) = delete;
-    mpmc_test_config(mpmc_test_config &&) = delete;
-    ~mpmc_test_config() = default;
+        mpmc & operator=(const mpmc &) = delete;
+        mpmc & operator=(mpmc &&) = delete;
 
-    mpmc_test_config & operator=(const mpmc_test_config &) = delete;
-    mpmc_test_config & operator=(mpmc_test_config &&) = delete;
+        static config_set same(unsigned workers) {
+            return { std::max(1u, workers), std::max(1u, workers) };
+        }
 
-    static test_config same(unsigned workers) {
-        return { std::max(1u, workers), std::max(1u, workers) };
-    }
-
-    static test_config proportion(unsigned total, unsigned producers) {
-        assert(producers <= total);
-        return { std::max(1u, producers), std::max(1u, total - std::max(1u, producers)) };
-    }
-};
+        static config_set proportion(unsigned total, unsigned producers) {
+            assert(producers <= total);
+            return { std::max(1u, producers), std::max(1u, total - std::max(1u, producers)) };
+        }
+    };
+}

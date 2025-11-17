@@ -7,6 +7,6 @@
 int main(int, char **) {
     config_console();
     config_profiler();
-    queue_test("FAST MPSC QUEUE TEST", mpsc_test_config {});
+    test::perform("FAST LOCK-FREE MPSC QUEUE TEST", test::config::mpsc {});
     return EXIT_SUCCESS;
 }

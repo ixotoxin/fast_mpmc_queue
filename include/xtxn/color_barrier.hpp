@@ -15,10 +15,10 @@ namespace xtxn {
         std::atomic_uint_fast64_t m_green_counter {};
 
     public:
-        color_barrier() = default;
+        color_barrier() noexcept = default;
         color_barrier(const color_barrier &) = delete;
         color_barrier(color_barrier &&) = delete;
-        ~color_barrier() = default;
+        ~color_barrier() noexcept = default;
 
         color_barrier & operator=(const color_barrier &) = delete;
         color_barrier & operator=(color_barrier &&) = delete;
@@ -32,7 +32,7 @@ namespace xtxn {
         red_lock(const red_lock &) = delete;
         red_lock(red_lock &&) = delete;
 
-        explicit red_lock(color_barrier & barrier)
+        explicit red_lock(color_barrier & barrier) noexcept
         : m_color_barrier { barrier } {
             while (m_color_barrier.m_green_counter.load(std::memory_order_acquire)) {
                 std::this_thread::yield();
@@ -40,7 +40,7 @@ namespace xtxn {
             m_color_barrier.m_red_counter.fetch_add(1, std::memory_order_acq_rel);
         }
 
-        ~red_lock() {
+        ~red_lock() noexcept {
             m_color_barrier.m_red_counter.fetch_sub(1, std::memory_order_acq_rel);
         }
 
@@ -56,7 +56,7 @@ namespace xtxn {
         green_lock(const green_lock &) = delete;
         green_lock(green_lock &&) = delete;
 
-        explicit green_lock(color_barrier & barrier)
+        explicit green_lock(color_barrier & barrier) noexcept
         : m_color_barrier { barrier } {
             while (m_color_barrier.m_red_counter.load(std::memory_order_acquire)) {
                 std::this_thread::yield();
@@ -64,7 +64,7 @@ namespace xtxn {
             m_color_barrier.m_green_counter.fetch_add(1, std::memory_order_acq_rel);
         }
 
-        ~green_lock() {
+        ~green_lock() noexcept {
             m_color_barrier.m_green_counter.fetch_sub(1, std::memory_order_acq_rel);
         }
 

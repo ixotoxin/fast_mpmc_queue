@@ -2,15 +2,11 @@
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
 #include "config.hpp"
-#include "queue_test.hpp"
-#include <xtxn/mpmcdd_queue.hpp>
+#include "fastest_queue_test.hpp"
 
 int main(int, char **) {
     config_console();
     config_profiler();
-    test::perform<xtxn::mpmcdd_queue<test::item_type>>(
-        "CLASSIC MPMC QUEUE TEST (DEFERRED DELETION)",
-        test::config::mpmc {}
-    );
+    test::perform("FAST LOCK-FREE ALLOCATION-FREE MPSC QUEUE TEST", test::config::mpsc {});
     return EXIT_SUCCESS;
 }
