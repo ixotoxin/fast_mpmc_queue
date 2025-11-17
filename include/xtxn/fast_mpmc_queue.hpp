@@ -5,6 +5,7 @@
 
 #include <cassert>
 #include <concepts>
+#include <atomic>
 #include <array>
 #include "fast_queue_internal.hpp"
 #include "spinlock.hpp"
