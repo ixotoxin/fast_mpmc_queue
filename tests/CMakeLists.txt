@@ -20,3 +20,7 @@ target_link_libraries(GTest::GTest INTERFACE gtest_main)
 add_executable(test_lib_fast_queue fast_queue.cpp)
 target_link_libraries(test_lib_fast_queue GTest::gtest GTest::gtest_main)
 add_test(NAME test_lib_fast_queue COMMAND test_lib_fast_queue)
+
+add_executable(test_lib_fastest_queue fastest_queue.cpp)
+target_link_libraries(test_lib_fastest_queue GTest::gtest GTest::gtest_main)
+add_test(NAME test_lib_fastest_queue COMMAND test_lib_fastest_queue)

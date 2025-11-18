@@ -1,6 +1,7 @@
 // Copyright (c) 2025 Vitaly Anasenko
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
+#include "init.hpp"
 #include "config.hpp"
 #include "messages.hpp"
 #include <xtxn/fast_mpmc_queue.hpp>
@@ -17,8 +18,8 @@
 #include <iostream>
 
 int main(int, char **) {
-    config_console();
-    config_profiler();
+    init::console();
+    init::profiler();
 
     const unsigned producers { std::thread::hardware_concurrency() << 2 };
     const unsigned consumers { producers };

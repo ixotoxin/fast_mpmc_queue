@@ -2,14 +2,14 @@
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
 #include <string>
-#include <xtxn/fast_mpmc_queue.hpp>
+#include <xtxn/fastest_mpmc_queue.hpp>
 #include <gtest/gtest.h>
 
 using namespace std;
 using namespace xtxn;
 
-TEST(lib_fast_mpmc_queue, queue_of_primitive) {
-    xtxn::fast_mpmc_queue<int, 10, 40> queue {};
+TEST(lib_fastest_mpmc_queue, queue_of_primitive) {
+    xtxn::fastest_mpmc_queue<int, 40> queue {};
 
     for (int i = 50; i; --i) {
         auto slot = queue.producer_slot();
@@ -36,7 +36,7 @@ TEST(lib_fast_mpmc_queue, queue_of_primitive) {
     }
 }
 
-TEST(lib_fast_mpmc_queue, queue_of_struct) {
+TEST(lib_fastest_mpmc_queue, queue_of_struct) {
     struct payload {
         std::string m_str {};
         int m_int { 0 };
@@ -49,7 +49,7 @@ TEST(lib_fast_mpmc_queue, queue_of_struct) {
         bool m_bool {};
     };
 
-    xtxn::fast_mpmc_queue<payload, 10, 40> queue {};
+    xtxn::fastest_mpmc_queue<payload, 40> queue {};
 
     for (int i = 50; i; --i) {
         auto slot = queue.producer_slot();
@@ -88,8 +88,8 @@ TEST(lib_fast_mpmc_queue, queue_of_struct) {
     }
 }
 
-TEST(lib_fast_mpmc_queue, order_test) {
-    xtxn::fast_mpmc_queue<int, 10, 20> queue {};
+TEST(lib_fastest_mpmc_queue, order_test) {
+    xtxn::fastest_mpmc_queue<int, 20> queue {};
 
     for (int i = 30; i; --i) {
         auto slot = queue.producer_slot();
