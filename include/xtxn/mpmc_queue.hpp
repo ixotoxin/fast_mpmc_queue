@@ -10,12 +10,12 @@
 
 #include <cassert>
 #include <cstdint>
-#include <new>
 #include <atomic>
 #include <memory>
 #include <unordered_map>
 #include <algorithm>
 #include "spinlock.hpp"
+#include "alignment.hpp"
 
 namespace xtxn {
     constexpr int64_t queue_default_purge_counter { 0x80 };
@@ -29,7 +29,7 @@ namespace xtxn {
         int S = queue_default_purge_skip_first
     >
     requires (C >= 4) && (S >= 4)
-    class alignas(std::hardware_constructive_interference_size) mpmc_queue final {
+    class alignas(queue_alignment) mpmc_queue final {
         struct node;
         using mo = std::memory_order;
         using epoch_type = uint_fast64_t;

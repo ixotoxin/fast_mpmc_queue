@@ -5,11 +5,11 @@
 
 #include <cassert>
 #include <concepts>
-#include <new>
 #include <atomic>
 #include <array>
 #include "fast_queue_internal.hpp"
 #include "spinlock.hpp"
+#include "alignment.hpp"
 
 namespace xtxn {
     enum class queue_growth_policy { call, round, step };
@@ -23,7 +23,7 @@ namespace xtxn {
         queue_growth_policy G = queue_growth_policy::round
     >
     requires ((S >= 4) && (L <= queue_max_capacity_limit) && (S <= L) && (A > 0) && (A <= queue_max_attempts))
-    class alignas(std::hardware_constructive_interference_size) fast_mpmc_queue {
+    class alignas(queue_alignment) fast_mpmc_queue {
         struct slot;
         struct block;
         using slot_completion = queue_slot_completion<C>;

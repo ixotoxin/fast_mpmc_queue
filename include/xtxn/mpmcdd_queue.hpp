@@ -7,14 +7,14 @@
 
 #pragma once
 
-#include <new>
 #include <atomic>
 #include <memory>
 #include "color_barrier.hpp"
+#include "alignment.hpp"
 
 namespace xtxn {
     template<typename T>
-    class alignas(std::hardware_constructive_interference_size) mpmcdd_queue final {
+    class alignas(queue_alignment) mpmcdd_queue final {
         struct node;
         using mo = std::memory_order;
 

@@ -5,10 +5,10 @@
 
 #include <cassert>
 #include <concepts>
-#include <new>
 #include <atomic>
 #include <array>
 #include "fast_queue_internal.hpp"
+#include "alignment.hpp"
 
 namespace xtxn {
     template<
@@ -18,7 +18,7 @@ namespace xtxn {
         int32_t A = queue_default_attempts
     >
     requires ((S >= 4) && (S <= queue_max_capacity_limit) && (A > 0) && (A <= queue_max_attempts))
-    class alignas(std::hardware_constructive_interference_size) fastest_mpmc_queue {
+    class alignas(queue_alignment) fastest_mpmc_queue {
         struct slot;
         using slot_completion = queue_slot_completion<C>;
         // class base_accessor;
