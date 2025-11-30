@@ -9,6 +9,10 @@
 #include <thread>
 
 namespace test::config {
+    inline unsigned baseline_concurrency() {
+        return std::max(std::thread::hardware_concurrency(), 2u);
+    }
+
     struct prelim {
 #if defined(ENABLE_MEMORY_PROFILING)
         const int prelim_test_iters { 2 };
@@ -23,7 +27,7 @@ namespace test::config {
     };
 
     struct mpsc : public prelim {
-        const unsigned cores;
+        const unsigned concurrency;
         const config_set set_a;
         const config_set set_b;
         const config_set set_c;
@@ -31,11 +35,11 @@ namespace test::config {
 
         mpsc()
         : prelim {},
-          cores { std::thread::hardware_concurrency() },
+          concurrency { baseline_concurrency() },
           set_a { 1, 1 },
-          set_b { std::max(1u, cores - 1), 1 },
-          set_c { cores, 1 },
-          set_d { cores << 1, 1 } {}
+          set_b { std::max(1u, concurrency - 1), 1 },
+          set_c { concurrency, 1 },
+          set_d { concurrency << 1, 1 } {}
 
         mpsc(const mpsc &) = delete;
         mpsc(mpsc &&) = delete;
@@ -46,7 +50,7 @@ namespace test::config {
     };
 
     struct mpmc : public prelim {
-        const unsigned cores;
+        const unsigned concurrency;
         const config_set set_a;
         const config_set set_b;
         const config_set set_c;
@@ -54,11 +58,11 @@ namespace test::config {
 
         mpmc()
         : prelim {},
-          cores { std::thread::hardware_concurrency() },
-          set_a { proportion(cores, cores >> 1) },
-          set_b { proportion(cores, static_cast<unsigned>(static_cast<double>(cores) / 3.0 * 2.0)) },
-          set_c { same(cores) },
-          set_d { same(cores << 1) } {}
+          concurrency { baseline_concurrency() },
+          set_a { proportion(concurrency, concurrency >> 1) },
+          set_b { proportion(concurrency, static_cast<unsigned>(static_cast<double>(concurrency) / 3.0 * 2.0)) },
+          set_c { same(concurrency) },
+          set_d { same(concurrency << 1) } {}
 
         mpmc(const mpmc &) = delete;
         mpmc(mpmc &&) = delete;
