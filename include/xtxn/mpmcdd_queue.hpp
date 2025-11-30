@@ -7,6 +7,7 @@
 
 #pragma once
 
+#include <new>
 #include <atomic>
 #include <memory>
 #include "color_barrier.hpp"

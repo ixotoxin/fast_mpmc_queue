@@ -5,6 +5,7 @@
 
 #include <cassert>
 #include <concepts>
+#include <new>
 #include <atomic>
 #include <array>
 #include "fast_queue_internal.hpp"

@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <new>
 #include <atomic>
 #include <memory>
 
