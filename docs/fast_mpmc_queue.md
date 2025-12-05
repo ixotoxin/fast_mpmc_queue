@@ -40,7 +40,7 @@ xtxn::fast_mpmc_queue<payload_type> queue {};
 
 ### Constructor of `fast_mpmc_queue`
 ```c++
-fast_mpmc_queue();
+fast_mpmc_queue::fast_mpmc_queue();
 ```
 
 ### Retrieving the queue state
@@ -83,14 +83,14 @@ Returns whether consumer activity is allowed. Recommended for organizing the con
 
 #### Producer slot
 ```c++
-producer_accessor fast_mpmc_queue::producer_slot(int32_t slot_acquire_attempts = c_default_attempts);
+producer_accessor fast_mpmc_queue::producer_slot(int32_t slot_acquire_attempts = A);
 ```
 Function to acquire a producer slot. Before use, the slot must be checked in a boolean context to ensure it's valid.
 Any operations with an invalid slot result in undefined behavior.
 
 #### Consumer slot
 ```c++
-consumer_accessor fast_mpmc_queue::consumer_slot(int32_t slot_acquire_attempts = c_default_attempts);
+consumer_accessor fast_mpmc_queue::consumer_slot(int32_t slot_acquire_attempts = A);
 ```
 Function to acquire a consumer slot. Before use, the slot must be checked in a boolean context to ensure it's valid.
 Any operations with an invalid slot result in undefined behavior.
@@ -145,43 +145,92 @@ Mark the slot operations as completed. Calling this function is only required if
 ## Examples
 
 ```c++
+#include <xtxn/fast_mpmc_queue.hpp>
+
 xtxn::fast_mpmc_queue<int> queue {};
 
-std::jthread consumer1 {
-    [& queue] {
+void queue_run() {
+    std::jthread consumer1 { [] {
         while (queue.consuming()) {
             auto slot = queue.consumer_slot();
             if (slot) {
                 // Get data from slot
-                // data = *slot;
-                // data = std::move(*slot);
-                // data.prop1 = (*slot).prop1;
-                // (*slot).func1();
-                // data2 = slot->prop2;
-                // data3 = slot->func2();
-                // Do something
+                auto int_payload = *slot;
+                // Do something...
+            } else {
+                std::this_thread::yield();
+            }
+        }
+    } };
+
+    std::jthread producer1 { [] {
+        while (queue.producing()) {
+            // Get and process some data
+            int int_payload { 42 };
+            while (queue.producing()) {
+                auto slot = queue.producer_slot(xtxn::max_attempts);
+                if (slot) {
+                    // Store data to slot
+                    *slot = int_payload;
+                    break;
+                } else {
+                    std::this_thread::yield();
+                }
+            }
+        }
+    } };
+}
+```
+
+```c++
+#include <xtxn/fast_mpmc_queue.hpp>
+
+struct payload_type {
+    std::string prop1 {};
+    int prop2 {};
+    void func1(int v) { prop2 = v; }
+    auto func2() { return prop2; }
+};
+
+xtxn::fast_mpmc_queue<payload_type, 64, 1024, false> queue {};
+
+void queue_run() {
+    std::jthread consumer1 { [] {
+        while (queue.consuming()) {
+            auto slot = queue.consumer_slot();
+            if (slot) {
+                // Get data from slot
+                auto payload = *slot;
+                auto prop1 = (*slot).prop1;
+                auto prop2 = slot->prop2;
+                auto prop3 = (*slot).func2();
+                auto prop4 = slot->func2();
+                // Do something...
+                // Mark slot as processed
                 slot.complete();
             } else {
                 std::this_thread::yield();
             }
         }
-    }
-};
+    } };
 
-std::jthread producer1 {
-    [& queue] {
+    std::jthread producer1 { [] {
         while (queue.producing()) {
             // Get and process some data
+            payload_type payload { .prop1 = "42", .prop2 = 42 };
+            std::string prop1 { "42" };
+            int prop2 { 42 };
             while (queue.producing()) {
                 auto slot = queue.producer_slot(xtxn::max_attempts);
                 if (slot) {
                     // Store data to slot
-                    // *slot = data;
-                    // *slot = std::move(data);
-                    // (*slot).prop1 = data.prop1;
-                    // (*slot).func1();
-                    // slot->prop2 = data2;
-                    // slot->func2(data3);
+                    *slot = payload;
+                    *slot = std::move(payload);
+                    (*slot).prop1 = prop1;
+                    slot->prop2 = prop2;
+                    (*slot).func1(prop2);
+                    auto prop3 = slot->func2();
+                    // Mark slot as processed
                     slot.complete();
                     break;
                 } else {
@@ -189,8 +238,8 @@ std::jthread producer1 {
                 }
             }
         }
-    }
-};
+    } };
+}
 ```
 
-Several usage examples can be found in the `./src` directory.
+Several usage examples can be found in the `./src` and `./tests` directories.
