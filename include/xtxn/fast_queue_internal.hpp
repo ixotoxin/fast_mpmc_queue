@@ -12,8 +12,8 @@ namespace xtxn {
     constexpr int32_t queue_default_capacity_limit [[maybe_unused]] { queue_default_block_size * 0x1'0000 };
     constexpr int32_t queue_max_capacity_limit [[maybe_unused]] { std::numeric_limits<int32_t>::max() };
     constexpr bool queue_default_completion [[maybe_unused]] { true };
-    constexpr int32_t queue_default_attempts [[maybe_unused]] { 5 };
-    constexpr int32_t queue_max_attempts [[maybe_unused]] { std::numeric_limits<int32_t>::max() };
+    constexpr unsigned queue_default_attempts [[maybe_unused]] { 5 };
+    constexpr unsigned queue_max_attempts [[maybe_unused]] { std::numeric_limits<unsigned>::max() };
 
     enum class queue_slot_state { free, prod_locked, ready, cons_locked };
 
