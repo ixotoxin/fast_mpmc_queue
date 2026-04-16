@@ -10,6 +10,7 @@
 
 #include <cassert>
 #include <cstdint>
+#include <new>
 #include <atomic>
 #include <mutex>
 #include <memory>

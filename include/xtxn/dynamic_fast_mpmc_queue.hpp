@@ -5,6 +5,7 @@
 
 #include <cassert>
 #include <concepts>
+#include <new>
 #include <atomic>
 #include <mutex>
 #include "fast_mpmc_queue_commons.hpp"
