@@ -10,12 +10,11 @@
 
 #include <cassert>
 #include <cstdint>
-#include <new>
-#include <atomic>
 #include <mutex>
 #include <memory>
 #include <unordered_map>
 #include <algorithm>
+#include "types.hpp"
 #include "spinlock.hpp"
 
 namespace xtxn {
@@ -30,7 +29,7 @@ namespace xtxn {
         int S = queue_default_purge_skip_first
     >
     requires (C >= 4) && (S >= 4)
-    class alignas(std::hardware_constructive_interference_size) mpmc_queue final {
+    class alignas(hw_cis) mpmc_queue final {
         struct node;
         using mo = std::memory_order;
         using epoch_type = uint_fast64_t;
@@ -46,8 +45,8 @@ namespace xtxn {
         std::atomic<epoch_type> m_epoch { c_before_epoch + 1 };
         spinlock<spin::yield_thread> m_purge_sl {};
         spinlock<> m_epoch_sl {};
-        alignas(std::hardware_destructive_interference_size) std::atomic_flag m_producing {};
-        alignas(std::hardware_destructive_interference_size) std::atomic_flag m_consuming {};
+        alignas(hw_dis) std::atomic_flag m_producing {};
+        alignas(hw_dis) std::atomic_flag m_consuming {};
 
     public:
         mpmc_queue();

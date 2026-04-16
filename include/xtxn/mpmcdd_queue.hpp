@@ -7,14 +7,13 @@
 
 #pragma once
 
-#include <new>
-#include <atomic>
 #include <memory>
+#include "types.hpp"
 #include "color_barrier.hpp"
 
 namespace xtxn {
     template<typename T>
-    class alignas(std::hardware_constructive_interference_size) mpmcdd_queue final {
+    class alignas(hw_cis) mpmcdd_queue final {
         struct node;
         using mo = std::memory_order;
 
@@ -22,8 +21,8 @@ namespace xtxn {
         std::atomic<node *> m_tail;
         std::atomic<node *> m_deleted { nullptr };
         color_barrier m_barrier {};
-        alignas(std::hardware_destructive_interference_size) std::atomic_flag m_producing {};
-        alignas(std::hardware_destructive_interference_size) std::atomic_flag m_consuming {};
+        alignas(hw_dis) std::atomic_flag m_producing {};
+        alignas(hw_dis) std::atomic_flag m_consuming {};
 
     public:
         mpmcdd_queue();

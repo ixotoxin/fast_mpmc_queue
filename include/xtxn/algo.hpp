@@ -3,23 +3,9 @@
 
 #pragma once
 
-#include <type_traits>
-#include <atomic>
+#include "types.hpp"
 
 namespace xtxn {
-    template<class T>
-    concept any_atomic_int
-        = requires { typename T::value_type; }
-          && std::is_integral_v<typename T::value_type>
-          && requires(T t) { [] <class U> (std::atomic<U> &) {} (t); };
-
-    template<class T>
-    concept any_atomic_uint
-        = requires { typename T::value_type; }
-          && std::is_integral_v<typename T::value_type>
-          && std::is_unsigned_v<typename T::value_type>
-          && requires(T t) { [] <class U> (std::atomic<U> &) {} (t); };
-
     /** Post-increment iteration **/
     template<size_t B, any_atomic_uint T, typename U = T::value_type>
     requires (B > 1)

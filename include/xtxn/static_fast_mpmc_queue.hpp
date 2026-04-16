@@ -6,8 +6,7 @@
 #include <cassert>
 #include <concepts>
 #include <limits>
-#include <new>
-#include <atomic>
+#include "types.hpp"
 #include "algo.hpp"
 #include "fast_mpmc_queue_commons.hpp"
 
@@ -19,7 +18,7 @@ namespace xtxn {
         unsigned A = queue_default_attempts
     >
     requires (S > 1) && (A > 0)
-    class alignas(std::hardware_constructive_interference_size) static_fast_mpmc_queue {
+    class alignas(hw_cis) static_fast_mpmc_queue {
         using slot_completion = queue_slot_completion<C>;
         class producer_accessor;
         class consumer_accessor;
@@ -28,17 +27,17 @@ namespace xtxn {
 
         static constexpr bool c_ntdct = std::is_nothrow_default_constructible_v<T>;
 
-        struct alignas(std::hardware_destructive_interference_size) {
+        struct alignas(hw_dis) {
             std::atomic_uint_fast64_t m_index { 0 };
             std::atomic_flag m_enable {};
         } m_producer;
-        struct alignas(std::hardware_destructive_interference_size) {
+        struct alignas(hw_dis) {
             std::atomic_uint_fast64_t m_index { 0 };
             std::atomic_flag m_enable {};
         } m_consumer;
-        alignas(std::hardware_destructive_interference_size) std::atomic_int_fast32_t m_free { S };
-        alignas(std::hardware_destructive_interference_size) std::atomic<state> m_state[static_cast<size_t>(S)] {};
-        alignas(std::hardware_destructive_interference_size) T m_payload[static_cast<size_t>(S)] {};
+        alignas(hw_dis) std::atomic_int_fast32_t m_free { S };
+        alignas(hw_dis) std::atomic<state> m_state[static_cast<size_t>(S)] {};
+        alignas(hw_dis) T m_payload[static_cast<size_t>(S)] {};
 
     public:
         using payload_type [[maybe_unused]] = T;

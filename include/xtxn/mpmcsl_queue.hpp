@@ -7,23 +7,22 @@
 
 #pragma once
 
-#include <new>
-#include <atomic>
 #include <mutex>
 #include <memory>
+#include "types.hpp"
 #include "spinlock.hpp"
 
 namespace xtxn {
     template<typename T>
-    class alignas(std::hardware_constructive_interference_size) mpmcsl_queue final {
+    class alignas(hw_cis) mpmcsl_queue final {
         struct node;
         using mo = std::memory_order;
 
         std::atomic<node *> m_head;
         std::atomic<node *> m_tail;
         spinlock<> m_spinlock {};
-        alignas(std::hardware_destructive_interference_size) std::atomic_flag m_producing {};
-        alignas(std::hardware_destructive_interference_size) std::atomic_flag m_consuming {};
+        alignas(hw_dis) std::atomic_flag m_producing {};
+        alignas(hw_dis) std::atomic_flag m_consuming {};
 
     public:
         mpmcsl_queue();
