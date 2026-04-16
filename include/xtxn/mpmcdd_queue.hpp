@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Vitaly Anasenko
+// Copyright (c) 2025-2026 Vitaly Anasenko
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
 /**
@@ -10,11 +10,10 @@
 #include <atomic>
 #include <memory>
 #include "color_barrier.hpp"
-#include "alignment.hpp"
 
 namespace xtxn {
     template<typename T>
-    class alignas(queue_alignment) mpmcdd_queue final {
+    class alignas(std::hardware_constructive_interference_size) mpmcdd_queue final {
         struct node;
         using mo = std::memory_order;
 
@@ -22,11 +21,11 @@ namespace xtxn {
         std::atomic<node *> m_tail;
         std::atomic<node *> m_deleted { nullptr };
         color_barrier m_barrier {};
-        std::atomic_bool m_producing { true };
-        std::atomic_bool m_consuming { true };
+        alignas(std::hardware_destructive_interference_size) std::atomic_flag m_producing {};
+        alignas(std::hardware_destructive_interference_size) std::atomic_flag m_consuming {};
 
     public:
-        mpmcdd_queue() : m_head { new node }, m_tail { m_head.load(mo::relaxed) } {}
+        mpmcdd_queue();
         mpmcdd_queue(const mpmcdd_queue &) = delete;
         mpmcdd_queue(mpmcdd_queue && other) = delete;
         ~mpmcdd_queue();
@@ -42,12 +41,12 @@ namespace xtxn {
 
         [[nodiscard, maybe_unused]]
         bool producing() const noexcept {
-            return m_producing.load(mo::relaxed);
+            return m_producing.test(mo::acquire);
         }
 
         [[nodiscard, maybe_unused]]
         bool consuming() const noexcept {
-            return m_consuming.load(mo::relaxed);
+            return m_consuming.test(mo::acquire);
         }
 
         template <typename U> bool enqueue(U &&);
@@ -56,13 +55,13 @@ namespace xtxn {
 
         [[maybe_unused]]
         void shutdown() noexcept {
-            m_producing.store(false, mo::relaxed);
+            m_producing.clear(mo::release);
         }
 
         [[maybe_unused]]
         void stop() noexcept {
-            m_producing.store(false, mo::relaxed);
-            m_consuming.store(false, mo::relaxed);
+            m_producing.clear(mo::release);
+            m_consuming.clear(mo::release);
         }
     };
 
@@ -86,6 +85,12 @@ namespace xtxn {
         node & operator=(const node &) = delete;
         node & operator=(node && other) = delete;
     };
+
+    template<typename T>
+    mpmcdd_queue<T>::mpmcdd_queue() : m_head { new node }, m_tail { m_head.load(mo::relaxed) } {
+        m_producing.test_and_set(mo::acquire);
+        m_consuming.test_and_set(mo::acquire);
+    }
 
     template<typename T>
     mpmcdd_queue<T>::~mpmcdd_queue() {
@@ -115,7 +120,7 @@ namespace xtxn {
     template<typename T>
     template<typename U>
     bool mpmcdd_queue<T>::enqueue(U && value) {
-        if (!m_producing.load(mo::relaxed)) {
+        if (!m_producing.test(mo::acquire)) {
             return false;
         }
 
@@ -123,7 +128,7 @@ namespace xtxn {
 
         node * new_node { new node(std::forward<U>(value)) };
 
-        while (m_producing.load(mo::relaxed)) {
+        while (m_producing.test(mo::acquire)) {
             node * tail { m_tail.load(mo::acquire) };
             node * next { tail->m_next.load(mo::acquire) };
 
@@ -144,7 +149,7 @@ namespace xtxn {
     std::unique_ptr<T> mpmcdd_queue<T>::dequeue() {
         green_lock lock { m_barrier };
 
-        while (m_consuming.load(mo::relaxed)) {
+        while (m_consuming.test(mo::acquire)) {
             node * head { m_head.load(mo::acquire) };
             node * first { head->m_next.load(mo::acquire) };
 
@@ -179,7 +184,7 @@ namespace xtxn {
         red_lock lock { m_barrier };
 
         node * current { m_deleted.load(mo::relaxed) };
-        while (current && m_consuming.load(mo::relaxed)) {
+        while (current && m_consuming.test(mo::acquire)) {
             node * next { current->m_next_deleted.load(mo::relaxed) };
             delete current;
             current = next;

@@ -14,24 +14,23 @@ target_compile_definitions(test_mpmcdd PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILIN
 add_executable(test_mpmcsl test_mpmcsl_main.cpp)
 target_compile_definitions(test_mpmcsl PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
 
-add_executable(test_fast_mpsc test_fast_mpsc_main.cpp)
-target_compile_definitions(test_fast_mpsc PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
+add_executable(test_dfmpmcq test_dfmpmcq_main.cpp)
+target_compile_definitions(test_dfmpmcq PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
 
-add_executable(test_fast_mpmc test_fast_mpmc_main.cpp)
-target_compile_definitions(test_fast_mpmc PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
+add_executable(test_dfmpscq test_dfmpscq_main.cpp)
+target_compile_definitions(test_dfmpscq PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
 
-add_executable(test_fastest_mpmc test_fastest_mpmc_main.cpp)
-target_compile_definitions(test_fastest_mpmc PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
+add_executable(test_sfmpmcq test_sfmpmcq_main.cpp)
+target_compile_definitions(test_sfmpmcq PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
 
-add_executable(test_fastest_mpsc test_fastest_mpsc_main.cpp)
-target_compile_definitions(test_fastest_mpsc PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
+add_executable(test_sfmpscq test_sfmpscq_main.cpp)
+target_compile_definitions(test_sfmpscq PRIVATE $<$<BOOL:${ENABLE_MEMORY_PROFILING}>:ENABLE_MEMORY_PROFILING>)
 
 if (CMAKE_BUILD_TYPE STREQUAL "Debug")
     set(
         EXECUTABLES
         test_mpsc test_mpmc test_mpmcdd test_mpmcsl
-        test_fast_mpsc test_fast_mpmc
-        test_fastest_mpsc test_fastest_mpmc
+        test_dfmpmcq test_dfmpscq test_sfmpmcq test_sfmpscq
     )
 else ()
     add_executable(stress_test_mpmc stress_test_mpmc_main.cpp)
@@ -39,8 +38,7 @@ else ()
     set(
         EXECUTABLES
         test_mpsc test_mpmc test_mpmcdd test_mpmcsl
-        test_fast_mpsc test_fast_mpmc
-        test_fastest_mpsc test_fastest_mpmc
+        test_dfmpmcq test_dfmpscq test_sfmpmcq test_sfmpscq
         stress_test_mpmc
     )
 endif ()
@@ -72,8 +70,8 @@ if (BUILD_TESTS)
     add_test(NAME test_mpmc COMMAND test_mpmc)
     add_test(NAME test_mpmcdd COMMAND test_mpmcdd)
     add_test(NAME test_mpmcsl COMMAND test_mpmcsl)
-    add_test(NAME test_fast_mpsc COMMAND test_fast_mpsc)
-    add_test(NAME test_fast_mpmc COMMAND test_fast_mpmc)
-    add_test(NAME test_fastest_mpsc COMMAND test_fastest_mpsc)
-    add_test(NAME test_fastest_mpmc COMMAND test_fastest_mpmc)
+    add_test(NAME test_dfmpmcq COMMAND test_dfmpmcq)
+    add_test(NAME test_dfmpscq COMMAND test_dfmpscq)
+    add_test(NAME test_sfmpmcq COMMAND test_sfmpmcq)
+    add_test(NAME test_sfmpscq COMMAND test_sfmpscq)
 endif ()

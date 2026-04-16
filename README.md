@@ -6,7 +6,7 @@ of slots, and communication between producers and consumers happens through writ
 This design minimizes the number of allocations, deallocations, and memory fragmentation, while ensuring consistent
 performance over time. In the case of the fixed-size buffer, allocations are eliminated entirely.
 
-* #### [Fast Lock-Free Multi-Producer/Multi-Consumer Queue](docs/fast_mpmc_queue.md)
-* #### [Fast Lock-Free and Allocation-Free Multi-Producer/Multi-Consumer Queue](docs/fastest_mpmc_queue.md)
+* #### [Dynamic Fast Lock-Free Multi-Producer/Multi-Consumer Queue](docs/dynamic_fast_mpmc_queue.md)
+* #### [Static Fast Lock-Free and Allocation-Free Multi-Producer/Multi-Consumer Queue](docs/static_fast_mpmc_queue.md)
 
 The repository also contains classical implementations of MPSC and MPMC queues that were used for performance comparison.

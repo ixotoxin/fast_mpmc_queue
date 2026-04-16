@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Vitaly Anasenko
+// Copyright (c) 2025-2026 Vitaly Anasenko
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
 #pragma once
@@ -26,7 +26,7 @@ namespace test::config {
 #endif
     };
 
-    struct mpsc : public prelim {
+    struct mpsc : prelim {
         const unsigned concurrency;
         const config_set set_a;
         const config_set set_b;
@@ -49,7 +49,7 @@ namespace test::config {
         mpsc & operator=(mpsc &&) = delete;
     };
 
-    struct mpmc : public prelim {
+    struct mpmc : prelim {
         const unsigned concurrency;
         const config_set set_a;
         const config_set set_b;
@@ -71,11 +71,11 @@ namespace test::config {
         mpmc & operator=(const mpmc &) = delete;
         mpmc & operator=(mpmc &&) = delete;
 
-        static config_set same(unsigned workers) {
+        static config_set same(const unsigned workers) {
             return { std::max(1u, workers), std::max(1u, workers) };
         }
 
-        static config_set proportion(unsigned total, unsigned producers) {
+        static config_set proportion(const unsigned total, const unsigned producers) {
             assert(producers <= total);
             return { std::max(1u, producers), std::max(1u, total - std::max(1u, producers)) };
         }

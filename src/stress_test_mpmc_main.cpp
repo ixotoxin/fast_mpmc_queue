@@ -1,11 +1,11 @@
-// Copyright (c) 2025 Vitaly Anasenko
+// Copyright (c) 2025-2026 Vitaly Anasenko
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
 #include "init.hpp"
 #include "config.hpp"
 #include "messages.hpp"
-#include <xtxn/fast_mpmc_queue.hpp>
-#include <xtxn/fastest_mpmc_queue.hpp>
+#include <xtxn/dynamic_fast_mpmc_queue.hpp>
+#include <xtxn/static_fast_mpmc_queue.hpp>
 #include <xtxn/mpmc_queue.hpp>
 #include <cassert>
 #include <cstdlib>
@@ -18,6 +18,8 @@
 #include <iostream>
 
 int main(int, char **) {
+    using namespace xtxn;
+
     init::console();
     init::profiler();
 
@@ -31,30 +33,29 @@ int main(int, char **) {
 
     {
         std::stringstream str {};
-        xtxn::fast_mpmc_queue<test::item_type, 100, 400, true, 1, xtxn::queue_growth_policy::call> queue {};
+        dynamic_fast_mpmc_queue<test::item_type, 100, 400, true, 1, queue_growth_policy::call> queue {};
         std::vector<std::jthread> pool {};
         std::latch latch { producers + consumers + 1 };
         std::atomic_int_fast64_t consumed { 0 };
         std::atomic_int_fast64_t counter { items };
         std::atomic_int_fast64_t result { 0 };
 
-        std::cout << thick_separator << "\n   FAST MPMC QUEUE\n";
+        std::cout << thick_separator << "\n   DYNAMIC FAST MPMC QUEUE\n";
 
-        auto t1 = std::chrono::steady_clock::now();
+        const auto t1 = std::chrono::steady_clock::now();
 
         for (unsigned i { consumers }; i; --i) {
             pool.emplace_back(
                 [& queue, & result, & consumed, & latch] {
                     while (queue.consuming()) {
-                        auto slot = queue.consumer_slot();
-                        if (slot) {
+                        if (auto slot = queue.consumer_slot(); slot) {
                             result.fetch_add(*slot, std::memory_order_acq_rel);
                             consumed.fetch_add(1, std::memory_order_acq_rel);
                         } else {
                             std::this_thread::yield();
                         }
                     }
-                    latch.arrive_and_wait();
+                    latch.count_down();
                 }
             );
         }
@@ -63,16 +64,15 @@ int main(int, char **) {
             pool.emplace_back(
                 [& queue, & counter, & latch] {
                     int_fast64_t value { counter.fetch_sub(1, std::memory_order_acq_rel) };
-                    while (value > 0) {
-                        auto slot = queue.producer_slot();
-                        if (slot) {
+                    while (queue.producing() && value > 0) {
+                        if (auto slot = queue.producer_slot(); slot) {
                             *slot = value;
                             value = counter.fetch_sub(1, std::memory_order_acq_rel);
                         } else {
                             std::this_thread::yield();
                         }
                     }
-                    latch.arrive_and_wait();
+                    latch.count_down();
                 }
             );
         }
@@ -85,38 +85,37 @@ int main(int, char **) {
 
         assert(queue.empty());
 
-        auto t2 = std::chrono::steady_clock::now();
-        auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
-        summary_e(str, result.load() == ((items * (items + 1)) >> 1), t3);
+        const auto t2 = std::chrono::steady_clock::now();
+        const auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+        summary_e(str, result.load() == (items * (items + 1)) >> 1, t3);
         std::cout << str.str() << thick_separator;
     }
 
     {
         std::stringstream str {};
-        xtxn::fastest_mpmc_queue<test::item_type, 50, true, 1> queue {};
+        static_fast_mpmc_queue<test::item_type, 50, true, 1> queue {};
         std::vector<std::jthread> pool {};
         std::latch latch { producers + consumers + 1 };
         std::atomic_int_fast64_t consumed { 0 };
         std::atomic_int_fast64_t counter { items };
         std::atomic_int_fast64_t result { 0 };
 
-        std::cout << "\n   FASTEST MPMC QUEUE\n";
+        std::cout << "\n   STATIC FAST MPMC QUEUE\n";
 
-        auto t1 = std::chrono::steady_clock::now();
+        const auto t1 = std::chrono::steady_clock::now();
 
         for (unsigned i { consumers }; i; --i) {
             pool.emplace_back(
                 [& queue, & result, & consumed, & latch] {
                     while (queue.consuming()) {
-                        auto slot = queue.consumer_slot();
-                        if (slot) {
+                        if (auto slot = queue.consumer_slot(); slot) {
                             result.fetch_add(*slot, std::memory_order_acq_rel);
                             consumed.fetch_add(1, std::memory_order_acq_rel);
                         } else {
                             std::this_thread::yield();
                         }
                     }
-                    latch.arrive_and_wait();
+                    latch.count_down();
                 }
             );
         }
@@ -125,16 +124,15 @@ int main(int, char **) {
             pool.emplace_back(
                 [& queue, & counter, & latch] {
                     int_fast64_t value { counter.fetch_sub(1, std::memory_order_acq_rel) };
-                    while (value > 0) {
-                        auto slot = queue.producer_slot();
-                        if (slot) {
+                    while (queue.producing() && value > 0) {
+                        if (auto slot = queue.producer_slot(); slot) {
                             *slot = value;
                             value = counter.fetch_sub(1, std::memory_order_acq_rel);
                         } else {
                             std::this_thread::yield();
                         }
                     }
-                    latch.arrive_and_wait();
+                    latch.count_down();
                 }
             );
         }
@@ -147,15 +145,15 @@ int main(int, char **) {
 
         assert(queue.empty());
 
-        auto t2 = std::chrono::steady_clock::now();
-        auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
-        summary_e(str, result.load() == ((items * (items + 1)) >> 1), t3);
+        const auto t2 = std::chrono::steady_clock::now();
+        const auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+        summary_e(str, result.load() == (items * (items + 1)) >> 1, t3);
         std::cout << str.str() << thick_separator;
     }
 
     {
         std::stringstream str {};
-        xtxn::mpmc_queue<test::item_type, 500, true, 1000> queue {};
+        mpmc_queue<test::item_type, 500, true, 1000> queue {};
         std::vector<std::jthread> pool {};
         std::latch latch { producers + consumers + 1 };
         std::atomic_int_fast64_t consumed { 0 };
@@ -164,14 +162,13 @@ int main(int, char **) {
 
         std::cout << "\n   CLASSIC MPMC QUEUE\n";
 
-        auto t1 = std::chrono::steady_clock::now();
+        const auto t1 = std::chrono::steady_clock::now();
 
         for (unsigned i { consumers }; i; --i) {
             pool.emplace_back(
                 [& queue, & result, & consumed, & latch] {
                     while (queue.consuming()) {
-                        auto item = queue.dequeue();
-                        if (item) {
+                        if (auto item = queue.dequeue(); item) {
                             result.fetch_add(*item, std::memory_order_acq_rel);
                             consumed.fetch_add(1, std::memory_order_acq_rel);
                         } else {
@@ -179,7 +176,7 @@ int main(int, char **) {
                         }
                     }
                     queue.escape();
-                    latch.arrive_and_wait();
+                    latch.count_down();
                 }
             );
         }
@@ -188,12 +185,12 @@ int main(int, char **) {
             pool.emplace_back(
                 [& queue, & counter, & latch] {
                     int_fast64_t value { counter.fetch_sub(1, std::memory_order_acq_rel) };
-                    while (value > 0) {
+                    while (queue.producing() && value > 0) {
                         queue.enqueue(value);
                         value = counter.fetch_sub(1, std::memory_order_acq_rel);
                     }
                     queue.escape();
-                    latch.arrive_and_wait();
+                    latch.count_down();
                 }
             );
         }
@@ -206,9 +203,9 @@ int main(int, char **) {
 
         assert(queue.empty());
 
-        auto t2 = std::chrono::steady_clock::now();
-        auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
-        summary_e(str, result.load() == ((items * (items + 1)) >> 1), t3);
+        const auto t2 = std::chrono::steady_clock::now();
+        const auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+        summary_e(str, result.load() == (items * (items + 1)) >> 1, t3);
         std::cout << str.str() << thick_separator;
     }
 

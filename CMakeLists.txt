@@ -18,9 +18,9 @@ if (NOT BUILD_TESTS)
         add_compile_options(/W4 /WX)
     else ()
         add_compile_options(
-            -Werror -Wall -Wextra -Wpedantic
-            -Wcast-align -Wcast-qual -Wconversion -Wctor-dtor-privacy -Wenum-compare -Wfloat-equal -Wnon-virtual-dtor
-            -Wold-style-cast -Woverloaded-virtual -Wredundant-decls -Wsign-conversion -Wsign-promo -Wno-unknown-pragmas
+            -Werror -Wall -Wextra -Wpedantic -Wcast-align -Wcast-qual -Wconversion -Wctor-dtor-privacy -Wenum-compare
+            -Wfloat-equal -Wnon-virtual-dtor -Wold-style-cast -Woverloaded-virtual -Wredundant-decls -Wsign-conversion
+            -Wsign-promo -Wno-unknown-pragmas
         )
     endif ()
 endif ()
@@ -55,7 +55,7 @@ else ()
 endif ()
 
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    add_compile_options(-ftemplate-depth=500 -fconcepts-diagnostics-depth=500)
+    add_compile_options(-Wno-interference-size -ftemplate-depth=500 -fconcepts-diagnostics-depth=500)
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     add_compile_options(-nostdlib)
 elseif (CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM")

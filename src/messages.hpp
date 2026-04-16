@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Vitaly Anasenko
+// Copyright (c) 2025-2026 Vitaly Anasenko
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
 #pragma once
@@ -109,7 +109,7 @@ inline void summary_c(
            "  -----------+------+--------------+-------------+-------------\n";
 }
 
-inline void summary_d(
+void summary_d(
     std::stringstream & stream,
     const std::integral auto capacity,
     const std::integral auto block_size,
@@ -120,7 +120,7 @@ inline void summary_d(
         << " slot (min: " << block_size << ", max: " << max_capacity << ")\n";
 }
 
-inline void summary_d(
+void summary_d(
     std::stringstream & stream,
     const std::integral auto capacity
 ) {

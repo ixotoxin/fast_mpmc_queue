@@ -1,13 +1,13 @@
-// Copyright (c) 2025 Vitaly Anasenko
+// Copyright (c) 2025-2026 Vitaly Anasenko
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
 #include "init.hpp"
 #include "config.hpp"
-#include "fastest_queue_test.hpp"
+#include "dfmpmcq_test.hpp"
 
 int main(int, char **) {
     init::console();
     init::profiler();
-    test::perform("FAST LOCK-FREE ALLOCATION-FREE MPSC QUEUE TEST", test::config::mpsc {});
+    test::perform("DYNAMIC FAST LOCK-FREE MPMC QUEUE TEST", test::config::mpmc {});
     return EXIT_SUCCESS;
 }

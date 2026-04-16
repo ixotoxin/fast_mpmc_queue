@@ -1,15 +1,15 @@
-// Copyright (c) 2025 Vitaly Anasenko
+// Copyright (c) 2025-2026 Vitaly Anasenko
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
 #include <string>
-#include <xtxn/fast_mpmc_queue.hpp>
+#include <xtxn/dynamic_fast_mpmc_queue.hpp>
 #include <gtest/gtest.h>
 
 using namespace std;
 using namespace xtxn;
 
-TEST(lib_fast_mpmc_queue, queue_of_primitive) {
-    xtxn::fast_mpmc_queue<int, 10, 40> queue {};
+TEST(lib_dynamic_fast_mpmc_queue, queue_of_primitive) {
+    dynamic_fast_mpmc_queue<int, 10, 4> queue {};
 
     for (int i = 50; i; --i) {
         auto slot = queue.producer_slot();
@@ -36,12 +36,12 @@ TEST(lib_fast_mpmc_queue, queue_of_primitive) {
     }
 }
 
-TEST(lib_fast_mpmc_queue, queue_of_struct) {
+TEST(lib_dynamic_fast_mpmc_queue, queue_of_struct) {
     struct payload {
         std::string m_str {};
         int m_int { 0 };
 
-        [[maybe_unused]] void set_bool(bool val) { m_bool = val; }
+        [[maybe_unused]] void set_bool(const bool val) { m_bool = val; }
         [[nodiscard, maybe_unused]] bool get_bool() { return m_bool; } // NOLINT(*-make-member-function-const)
         [[nodiscard, maybe_unused]] bool get_bool() const { return m_bool; }
 
@@ -49,7 +49,7 @@ TEST(lib_fast_mpmc_queue, queue_of_struct) {
         bool m_bool {};
     };
 
-    xtxn::fast_mpmc_queue<payload, 10, 40> queue {};
+    dynamic_fast_mpmc_queue<payload, 10, 4> queue {};
 
     for (int i = 50; i; --i) {
         auto slot = queue.producer_slot();
@@ -88,8 +88,8 @@ TEST(lib_fast_mpmc_queue, queue_of_struct) {
     }
 }
 
-TEST(lib_fast_mpmc_queue, order_test) {
-    xtxn::fast_mpmc_queue<int, 10, 20> queue {};
+TEST(lib_dynamic_fast_mpmc_queue, order_test) {
+    dynamic_fast_mpmc_queue<int, 10, 2> queue {};
 
     for (int i = 30; i; --i) {
         auto slot = queue.producer_slot();

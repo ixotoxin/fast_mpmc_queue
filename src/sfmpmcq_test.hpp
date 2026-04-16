@@ -1,87 +1,85 @@
-// Copyright (c) 2025 Vitaly Anasenko
+// Copyright (c) 2025-2026 Vitaly Anasenko
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
 #pragma once
 
 #include "messages.hpp"
 #include "types.hpp"
-#include <xtxn/fastest_mpmc_queue.hpp>
+#include <xtxn/static_fast_mpmc_queue.hpp>
 #include <cassert>
 #include <cstdlib>
-#include <cstdint>
 #include <atomic>
 #include <chrono>
 #include <vector>
-#include <unordered_map>
 #include <thread>
 #include <latch>
 #include <iostream>
 
 namespace test {
-    namespace {
-        template<signed S, signed A = 10>
-        using queue = xtxn::fastest_mpmc_queue<item_type, S, true, A>;
+    using namespace xtxn;
 
-        auto create_producer(
-            xtxn::fastest_mpmc_queue_tc auto & queue,
-            std::atomic<item_type> & counter,
-            std::atomic_int_fast64_t & time,
-            std::atomic_int_fast64_t & successes,
-            std::atomic_int_fast64_t & fails,
-            std::latch & latch
-        ) {
-            return
-                [& queue, & counter, & time, & successes, & fails, & latch] {
-                    item_type value { counter.fetch_sub(1, std::memory_order_acq_rel) };
-                    while (value > 0) {
-                        auto t1 = std::chrono::steady_clock::now();
-                        auto slot = queue.producer_slot();
-                        auto t2 = std::chrono::steady_clock::now();
-                        auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
-                        time.fetch_add(t3, std::memory_order_acq_rel);
-                        if (slot) {
-                            *slot = value;
-                            value = counter.fetch_sub(1, std::memory_order_acq_rel);
-                            successes.fetch_add(1, std::memory_order_acq_rel);
-                        } else {
-                            fails.fetch_add(1, std::memory_order_acq_rel);
-                            std::this_thread::yield();
-                        }
-                    }
-                    latch.arrive_and_wait();
-                };
-        }
+    template<signed S, unsigned A = 10>
+    using queue = static_fast_mpmc_queue<item_type, S, true, A>;
 
-        auto create_consumer(
-            xtxn::fastest_mpmc_queue_tc auto & queue,
-            std::atomic<item_type> & result,
-            std::atomic_int_fast64_t & time,
-            std::atomic_int_fast64_t & successes,
-            std::atomic_int_fast64_t & fails,
-            std::latch & latch
-        ) {
-            return
-                [& queue, & result, & time, & successes, & fails, & latch] {
-                    while (queue.consuming()) {
-                        auto t1 = std::chrono::steady_clock::now();
-                        auto slot = queue.consumer_slot();
-                        auto t2 = std::chrono::steady_clock::now();
-                        auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
-                        time.fetch_add(t3, std::memory_order_acq_rel);
-                        if (slot) {
-                            result.fetch_add(*slot, std::memory_order_acq_rel);
-                            successes.fetch_add(1, std::memory_order_acq_rel);
-                        } else {
-                            fails.fetch_add(1, std::memory_order_acq_rel);
-                            std::this_thread::yield();
-                        }
+    auto create_producer(
+        any_static_fast_mpmc_queue auto & queue,
+        std::atomic<item_type> & counter,
+        std::atomic_int_fast64_t & time,
+        std::atomic_int_fast64_t & successes,
+        std::atomic_int_fast64_t & fails,
+        std::latch & latch
+    ) {
+        return
+            [& queue, & counter, & time, & successes, & fails, & latch] {
+                item_type value { counter.fetch_sub(1, std::memory_order_acq_rel) };
+                while (queue.producing() && value > 0) {
+                    const auto t1 = std::chrono::steady_clock::now();
+                    auto slot = queue.producer_slot();
+                    const auto t2 = std::chrono::steady_clock::now();
+                    const auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+                    time.fetch_add(t3, std::memory_order_acq_rel);
+                    if (slot) {
+                        *slot = value;
+                        value = counter.fetch_sub(1, std::memory_order_acq_rel);
+                        successes.fetch_add(1, std::memory_order_acq_rel);
+                    } else {
+                        fails.fetch_add(1, std::memory_order_acq_rel);
+                        std::this_thread::yield();
                     }
-                    latch.arrive_and_wait();
-                };
-        }
+                }
+                latch.count_down();
+            };
     }
 
-    template<xtxn::fastest_mpmc_queue_tc T>
+    auto create_consumer(
+        any_static_fast_mpmc_queue auto & queue,
+        std::atomic<item_type> & result,
+        std::atomic_int_fast64_t & time,
+        std::atomic_int_fast64_t & successes,
+        std::atomic_int_fast64_t & fails,
+        std::latch & latch
+    ) {
+        return
+            [& queue, & result, & time, & successes, & fails, & latch] {
+                while (queue.consuming()) {
+                    const auto t1 = std::chrono::steady_clock::now();
+                    auto slot = queue.consumer_slot();
+                    const auto t2 = std::chrono::steady_clock::now();
+                    const auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+                    time.fetch_add(t3, std::memory_order_acq_rel);
+                    if (slot) {
+                        result.fetch_add(*slot, std::memory_order_acq_rel);
+                        successes.fetch_add(1, std::memory_order_acq_rel);
+                    } else {
+                        fails.fetch_add(1, std::memory_order_acq_rel);
+                        std::this_thread::yield();
+                    }
+                }
+                latch.count_down();
+            };
+    }
+
+    template<any_static_fast_mpmc_queue T>
     int perform(std::stringstream & stream, const item_type items, const config_set & config) {
         T queue {};
         std::vector<std::jthread> pool {};
@@ -95,7 +93,7 @@ namespace test {
         std::atomic<item_type> counter { items };
         std::atomic<item_type> result { 0 };
 
-        auto t1 = std::chrono::steady_clock::now();
+        const auto t1 = std::chrono::steady_clock::now();
 
         for (unsigned i { config.second }; i; --i) {
             pool.emplace_back(create_consumer(queue, result, con_time, con_successes, con_fails, latch));
@@ -113,9 +111,9 @@ namespace test {
 
         assert(queue.empty());
 
-        auto t2 = std::chrono::steady_clock::now();
-        auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
-        int exit_code { result.load() == ((items * (items + 1)) >> 1) ? EXIT_SUCCESS : EXIT_FAILURE };
+        const auto t2 = std::chrono::steady_clock::now();
+        const auto t3 = std::chrono::duration_cast<std::chrono::microseconds>(t2 - t1).count();
+        const int exit_code { result.load() == (items * (items + 1)) >> 1 ? EXIT_SUCCESS : EXIT_FAILURE };
 
         summary_a(stream, items);
         summary_b(stream, T::c_default_attempts);
@@ -131,29 +129,28 @@ namespace test {
         return exit_code;
     }
 
-    template<xtxn::fastest_mpmc_queue_tc T>
-    void perform(const item_type items, const config_set & config, std::string_view separator) {
+    template<any_static_fast_mpmc_queue T>
+    void perform(const item_type items, const config_set & config, const std::string_view separator) {
         std::stringstream str {};
-        int result { perform<T>(str, items, config) };
+        const int result { perform<T>(str, items, config) };
         std::cout << str.str() << separator;
         if (result != EXIT_SUCCESS) {
             std::exit(result);
         }
     }
 
-    template<xtxn::fastest_mpmc_queue_tc T>
+    template<any_static_fast_mpmc_queue T>
     void perform(const int iters, const item_type items, const config_set & config) {
         for (int i { iters }; i; --i) {
             std::stringstream str {};
-            int result { perform<T>(str, items, config) };
-            if (result != EXIT_SUCCESS) {
+            if (const int result { perform<T>(str, items, config) }; result != EXIT_SUCCESS) {
                 std::cout << has_failed << thin_separator << str.str() << thick_separator;
                 std::exit(result);
             }
         }
     }
 
-    void perform(std::string_view test_name, auto test_config) {
+    void perform(const std::string_view test_name, auto test_config) {
         std::cout << thick_separator << "   " << test_name << '\n' << prelim_test;
 
         perform<queue<100>>(test_config.prelim_test_iters, test_config.prelim_test_items, test_config.set_d);

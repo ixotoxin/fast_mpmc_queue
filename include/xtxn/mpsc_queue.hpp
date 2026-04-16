@@ -1,25 +1,24 @@
-// Copyright (c) 2025 Vitaly Anasenko
+// Copyright (c) 2025-2026 Vitaly Anasenko
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
 #pragma once
 
 #include <atomic>
 #include <memory>
-#include "alignment.hpp"
 
 namespace xtxn {
     template<typename T>
-    class alignas(queue_alignment) mpsc_queue final {
+    class alignas(std::hardware_constructive_interference_size) mpsc_queue final {
         struct node;
         using mo = std::memory_order;
 
         std::atomic<node *> m_head;
         std::atomic<node *> m_tail;
-        std::atomic_bool m_producing { true };
-        std::atomic_bool m_consuming { true };
+        alignas(std::hardware_destructive_interference_size) std::atomic_flag m_producing {};
+        alignas(std::hardware_destructive_interference_size) std::atomic_flag m_consuming {};
 
     public:
-        mpsc_queue() : m_head { new node }, m_tail { m_head.load(mo::relaxed) } {}
+        mpsc_queue();
         mpsc_queue(const mpsc_queue &) = delete;
         mpsc_queue(mpsc_queue && other) = delete;
         ~mpsc_queue();
@@ -35,12 +34,12 @@ namespace xtxn {
 
         [[nodiscard, maybe_unused]]
         bool producing() const noexcept {
-            return m_producing.load(mo::relaxed);
+            return m_producing.test(mo::acquire);
         }
 
         [[nodiscard, maybe_unused]]
         bool consuming() const noexcept {
-            return m_consuming.load(mo::relaxed);
+            return m_consuming.test(mo::acquire);
         }
 
         template <typename U> bool enqueue(U &&);
@@ -48,13 +47,13 @@ namespace xtxn {
 
         [[maybe_unused]]
         void shutdown() noexcept {
-            m_producing.store(false, mo::relaxed);
+            m_producing.clear(mo::release);
         }
 
         [[maybe_unused]]
         void stop() noexcept {
-            m_producing.store(false, mo::relaxed);
-            m_consuming.store(false, mo::relaxed);
+            m_producing.clear(mo::release);
+            m_consuming.clear(mo::release);
         }
     };
 
@@ -78,6 +77,12 @@ namespace xtxn {
     };
 
     template<typename T>
+    mpsc_queue<T>::mpsc_queue() : m_head { new node }, m_tail { m_head.load(mo::relaxed) } {
+        m_producing.test_and_set(mo::acquire);
+        m_consuming.test_and_set(mo::acquire);
+    }
+
+    template<typename T>
     mpsc_queue<T>::~mpsc_queue() {
         stop();
 
@@ -92,7 +97,7 @@ namespace xtxn {
     template<typename T>
     template<typename U>
     bool mpsc_queue<T>::enqueue(U && value) {
-        if (!m_producing.load(mo::relaxed)) {
+        if (!m_producing.test(mo::acquire)) {
             return false;
         }
 
@@ -105,7 +110,7 @@ namespace xtxn {
     template<typename T>
     [[nodiscard]]
     std::unique_ptr<T> mpsc_queue<T>::dequeue() {
-        if (!m_consuming.load(mo::relaxed)) {
+        if (!m_consuming.test(mo::acquire)) {
             return { nullptr };
         }
 

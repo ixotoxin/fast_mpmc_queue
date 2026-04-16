@@ -1,4 +1,4 @@
-// Copyright (c) 2025 Vitaly Anasenko
+// Copyright (c) 2025-2026 Vitaly Anasenko
 // Distributed under the MIT License, see accompanying file LICENSE.txt
 
 /**
@@ -11,11 +11,11 @@
 #include <cassert>
 #include <cstdint>
 #include <atomic>
+#include <mutex>
 #include <memory>
 #include <unordered_map>
 #include <algorithm>
 #include "spinlock.hpp"
-#include "alignment.hpp"
 
 namespace xtxn {
     constexpr int64_t queue_default_purge_counter { 0x80 };
@@ -29,7 +29,7 @@ namespace xtxn {
         int S = queue_default_purge_skip_first
     >
     requires (C >= 4) && (S >= 4)
-    class alignas(queue_alignment) mpmc_queue final {
+    class alignas(std::hardware_constructive_interference_size) mpmc_queue final {
         struct node;
         using mo = std::memory_order;
         using epoch_type = uint_fast64_t;
@@ -44,9 +44,9 @@ namespace xtxn {
         std::atomic_int_fast64_t m_purge_counter { C };
         std::atomic<epoch_type> m_epoch { c_before_epoch + 1 };
         spinlock<spin::yield_thread> m_purge_sl {};
-        spinlock<spin::active> m_epoch_sl {};
-        std::atomic_bool m_producing { true };
-        std::atomic_bool m_consuming { true };
+        spinlock<> m_epoch_sl {};
+        alignas(std::hardware_destructive_interference_size) std::atomic_flag m_producing {};
+        alignas(std::hardware_destructive_interference_size) std::atomic_flag m_consuming {};
 
     public:
         mpmc_queue();
@@ -65,12 +65,12 @@ namespace xtxn {
 
         [[nodiscard, maybe_unused]]
         bool producing() const noexcept {
-            return m_producing.load(mo::relaxed);
+            return m_producing.test(mo::acquire);
         }
 
         [[nodiscard, maybe_unused]]
         bool consuming() const noexcept {
-            return m_consuming.load(mo::relaxed);
+            return m_consuming.test(mo::acquire);
         }
 
         template <typename U> bool enqueue(U &&);
@@ -79,25 +79,25 @@ namespace xtxn {
 
         [[maybe_unused]]
         void touch() {
-            scoped_lock epoch_lock { m_epoch_sl };
+            std::scoped_lock epoch_lock { m_epoch_sl };
             m_thread_epoch[std::this_thread::get_id()] = m_epoch.fetch_add(1, mo::relaxed);
         }
 
         [[maybe_unused]]
         void escape() {
-            scoped_lock epoch_lock { m_epoch_sl };
+            std::scoped_lock epoch_lock { m_epoch_sl };
             m_thread_epoch.erase(std::this_thread::get_id());
         }
 
         [[maybe_unused]]
         void shutdown() noexcept {
-            m_producing.store(false, mo::relaxed);
+            m_producing.clear(mo::release);
         }
 
         [[maybe_unused]]
         void stop() noexcept {
-            m_producing.store(false, mo::relaxed);
-            m_consuming.store(false, mo::relaxed);
+            m_producing.clear(mo::release);
+            m_consuming.clear(mo::release);
         }
     };
 
@@ -130,10 +130,10 @@ namespace xtxn {
         if constexpr (H) {
             std::thread(
                 [queue = this] {
-                    while (queue->m_consuming.load(mo::acquire)) {
+                    while (queue->m_consuming.test(mo::acquire)) {
                         while (queue->m_purge_counter.load(mo::acquire) > 0) {
                             std::this_thread::yield();
-                            if (!queue->m_consuming.load(mo::acquire)) {
+                            if (!queue->m_consuming.test(mo::acquire)) {
                                 break;
                             }
                         }
@@ -143,6 +143,8 @@ namespace xtxn {
                 }
             ).detach();
         }
+        m_producing.test_and_set(mo::acquire);
+        m_consuming.test_and_set(mo::acquire);
     }
 
     template<typename T, int64_t C, bool H, int S>
@@ -150,7 +152,7 @@ namespace xtxn {
     mpmc_queue<T, C, H, S>::~mpmc_queue() {
         stop();
 
-        scoped_lock lock { m_purge_sl };
+        std::scoped_lock lock { m_purge_sl };
 
         node * current { m_head.load(mo::relaxed)->m_next.load(mo::relaxed) };
         while (current) {
@@ -175,16 +177,16 @@ namespace xtxn {
     requires (C >= 4) && (S >= 4)
     template<typename U>
     bool mpmc_queue<T, C, H, S>::enqueue(U && value) {
-        if (!m_producing.load(mo::relaxed)) {
+        if (!m_producing.test(mo::acquire)) {
             return false;
         }
 
-        epoch_type epoch { m_epoch.fetch_add(1, mo::relaxed) };
+        const epoch_type epoch { m_epoch.fetch_add(1, mo::relaxed) };
         assert(epoch != c_beyond_epoch);
         epoch_type * thread_epoch { nullptr };
         {
-            scoped_lock lock { m_epoch_sl };
-            thread_epoch = &(m_thread_epoch.insert({ std::this_thread::get_id(), c_before_epoch }).first->second);
+            std::scoped_lock lock { m_epoch_sl };
+            thread_epoch = &m_thread_epoch.insert({ std::this_thread::get_id(), c_before_epoch }).first->second;
         }
         /*epoch_type & thread_epoch { std::invoke([queue = this] () -> epoch_type & {
             scoped_lock lock { queue->m_epoch_sl };
@@ -193,7 +195,7 @@ namespace xtxn {
 
         node * new_node { new node(std::forward<U>(value)) };
 
-        while (m_producing.load(mo::relaxed)) {
+        while (m_producing.test(mo::acquire)) {
             node * tail { m_tail.load(mo::acquire) };
             node * next { tail->m_next.load(mo::acquire) };
 
@@ -229,15 +231,15 @@ namespace xtxn {
         assert(epoch != c_beyond_epoch);
         epoch_type * thread_epoch { nullptr };
         {
-            scoped_lock lock { m_epoch_sl };
-            thread_epoch = &(m_thread_epoch.insert({ std::this_thread::get_id(), c_before_epoch }).first->second);
+            std::scoped_lock lock { m_epoch_sl };
+            thread_epoch = &m_thread_epoch.insert({ std::this_thread::get_id(), c_before_epoch }).first->second;
         }
         /*epoch_type & thread_epoch { std::invoke([queue = this] () -> epoch_type & {
             scoped_lock lock { queue->m_epoch_sl };
             return queue->m_thread_epoch.insert({ std::this_thread::get_id(), c_before_epoch }).first->second;
         }) };*/
 
-        while (m_consuming.load(mo::relaxed)) {
+        while (m_consuming.test(mo::acquire)) {
             node * head { m_head.load(mo::acquire) };
             node * first { head->m_next.load(mo::acquire) };
 
@@ -271,12 +273,12 @@ namespace xtxn {
     template<typename T, int64_t C, bool H, int S>
     requires (C >= 4) && (S >= 4)
     void mpmc_queue<T, C, H, S>::purge() {
-        scoped_lock purge_lock { m_purge_sl };
+        std::scoped_lock purge_lock { m_purge_sl };
 
         epoch_type min_epoch { m_epoch.load(mo::acquire) };
         {
-            scoped_lock epoch_lock { m_epoch_sl };
-            auto min_it
+            std::scoped_lock epoch_lock { m_epoch_sl };
+            const auto min_it
                 = std::ranges::min_element(
                     m_thread_epoch,
                     {},
