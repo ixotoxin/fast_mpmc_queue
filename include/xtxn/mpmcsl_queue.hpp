@@ -14,15 +14,15 @@
 
 namespace xtxn {
     template<typename T>
-    class alignas(hw_cis) mpmcsl_queue final {
+    class alignas(true_sharing_align) mpmcsl_queue final {
         struct node;
         using mo = std::memory_order;
 
         std::atomic<node *> m_head;
         std::atomic<node *> m_tail;
         spinlock<> m_spinlock {};
-        alignas(hw_dis) std::atomic_flag m_producing {};
-        alignas(hw_dis) std::atomic_flag m_consuming {};
+        alignas(false_sharing_align) std::atomic_flag m_producing {};
+        alignas(false_sharing_align) std::atomic_flag m_consuming {};
 
     public:
         mpmcsl_queue();

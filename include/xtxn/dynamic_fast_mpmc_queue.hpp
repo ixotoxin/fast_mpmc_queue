@@ -22,7 +22,7 @@ namespace xtxn {
         queue_growth_policy G = queue_growth_policy::round
     >
     requires (S > 1) && (L > 0) && (A > 0)
-    class alignas(hw_cis) dynamic_fast_mpmc_queue {
+    class alignas(true_sharing_align) dynamic_fast_mpmc_queue {
         struct slot;
         struct block;
         using slot_completion = queue_slot_completion<C>;
@@ -37,15 +37,15 @@ namespace xtxn {
         block * m_last_block;
         std::atomic_int_fast32_t m_capacity { 0 };
         spinlock<> m_spinlock {};
-        struct alignas(hw_dis) {
+        struct alignas(false_sharing_align) {
             std::atomic<slot *> m_cursor { nullptr };
             std::atomic_flag m_enable {};
         } m_producer;
-        struct alignas(hw_dis) {
+        struct alignas(false_sharing_align) {
             std::atomic<slot *> m_cursor { nullptr };
             std::atomic_flag m_enable {};
         } m_consumer;
-        alignas(hw_dis) std::atomic_int_fast32_t m_free { 0 };
+        alignas(false_sharing_align) std::atomic_int_fast32_t m_free { 0 };
 
         bool grow() noexcept;
 
@@ -111,8 +111,8 @@ namespace xtxn {
     requires (S > 1) && (L > 0) && (A > 0)
     struct dynamic_fast_mpmc_queue<T, S, L, C, A, G>::slot {
         slot * m_next { nullptr };
-        alignas(hw_dis) std::atomic<state> m_state { state::free };
-        alignas(hw_dis) T m_payload {};
+        alignas(false_sharing_align) std::atomic<state> m_state { state::free };
+        alignas(false_sharing_align) T m_payload {};
 
         slot() noexcept(c_ntdct) = default;
         slot(const slot &) = delete;

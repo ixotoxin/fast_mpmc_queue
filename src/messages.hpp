@@ -54,6 +54,11 @@ constexpr std::string_view all_tests_passed {
     "=================================================================\n"
 };
 
+constexpr std::string_view tests_failed {
+    "   LAST TEST FAILED\n"
+    "=================================================================\n"
+};
+
 inline void summary_a(
     std::stringstream & stream,
     const int64_t items

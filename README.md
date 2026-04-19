@@ -9,4 +9,7 @@ performance over time. In the case of the fixed-size buffer, allocations are eli
 * #### [Dynamic Fast Lock-Free Multi-Producer/Multi-Consumer Queue](docs/dynamic_fast_mpmc_queue.md)
 * #### [Static Fast Lock-Free and Allocation-Free Multi-Producer/Multi-Consumer Queue](docs/static_fast_mpmc_queue.md)
 
+**Important: this is not a production-ready implementation; it is a validation of the algorithm's functionality
+and a comparison with other algorithms.**
+
 The repository also contains classical implementations of MPSC and MPMC queues that were used for performance comparison.

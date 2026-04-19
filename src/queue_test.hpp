@@ -126,6 +126,7 @@ namespace test {
         const int result { perform<T>(str, items, config) };
         std::cout << str.str() << separator;
         if (result != EXIT_SUCCESS) {
+            std::cout << tests_failed;
             std::exit(result);
         }
     }
@@ -135,7 +136,7 @@ namespace test {
         for (int i { iters }; i; --i) {
             std::stringstream str {};
             if (const int result { perform<T>(str, items, config) }; result != EXIT_SUCCESS) {
-                std::cout << has_failed << thin_separator << str.str() << thick_separator;
+                std::cout << has_failed << thin_separator << str.str() << thick_separator << tests_failed;
                 std::exit(result);
             }
         }

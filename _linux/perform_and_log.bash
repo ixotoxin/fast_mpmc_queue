@@ -1,6 +1,6 @@
 #!/bin/bash
 
-BINS=(test_mpsc test_mpmc test_mpmcdd test_mpmcsl test_dfmpmcq test_dfmpscq test_sfmpmcq test_sfmpscq)
+BINS=(test_mpscq test_mpmcq test_mpmcqdd test_mpmcqsl test_dfmpscq test_dfmpmcq test_sfmpscq test_sfmpmcq stress_test_mpmc)
 [ ! -e ./log ] && mkdir ./log
 for FILE in "${BINS[@]}"; do
     BIN_FILE=./bin/${FILE}
